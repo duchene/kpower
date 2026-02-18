@@ -1,0 +1,27 @@
+# R
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# R package build artefacts
+/src/*.o
+/src/*.so
+/src/*.dll
+man/*.Rd
+NAMESPACE.bak
+
+# IQ-TREE output files
+*.iqtree
+*.treefile
+*.log
+*.ckp.gz
+*.bionj
+*.mldist
+*.contree
+*.splits.nex
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,27 @@
+Package: kpower
+Title: Assess Data Power to Discriminate Phylogenetic Mixture Model Categories
+Version: 0.1.0
+Authors@R:
+    person("David", "Duchene", email = "david.duchene@sydney.edu.au",
+           role = c("aut", "cre"))
+Description: Assesses the statistical power of an alignment to discriminate
+    among phylogenetic mixture models with different numbers of rate or profile
+    categories (K), using a parametric bootstrap framework built around IQ-TREE.
+    For a user-specified range of K, kpower fits each model to the empirical
+    data, simulates replicate alignments from the best-fitting model via AliSim,
+    refits all K values on each replicate, and compares the resulting information
+    criterion profiles to those from the empirical data. Output includes an
+    empirical power estimate and a publication-ready figure.
+License: MIT + file LICENSE
+SystemRequirements: IQ-TREE2 (>= 2.2.0) <http://www.iqtree.org>
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports:
+    processx,
+    ggplot2
+Suggests:
+    parallel,
+    future.apply,
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
