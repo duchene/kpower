@@ -40,14 +40,21 @@ check_iqtree <- function(iqtree_bin = NULL) {
   invisible(version_line)
 }
 
-#' Get alignment length from a FASTA file
+#' Get alignment length from a FASTA or PHYLIP alignment file
 #'
-#' @param fasta Path to a FASTA alignment file.
+#' @param alignment Path to a FASTA or PHYLIP alignment file.
 #' @return Integer number of sites.
-alignment_length <- function(fasta) {
-  lines <- readLines(fasta)
-  seq_lines <- lines[!startsWith(lines, ">")]
-  nchar(paste(seq_lines[seq_lines != ""], collapse = ""))
+alignment_length <- function(alignment) {
+  lines <- readLines(alignment, n = 10)
+  first <- trimws(lines[nzchar(trimws(lines))][1])
+  # PHYLIP: first non-blank line is "<ntaxa> <nsites>"
+  if (grepl("^[0-9]+\\s+[0-9]+$", first)) {
+    return(as.integer(strsplit(first, "\\s+")[[1]][2]))
+  }
+  # FASTA: concatenate all non-header lines from the first sequence
+  all_lines <- readLines(alignment)
+  seq_lines  <- all_lines[!startsWith(all_lines, ">")]
+  nchar(paste(seq_lines[nzchar(seq_lines)], collapse = ""))
 }
 
 #' Build a unique run prefix inside a directory

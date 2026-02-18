@@ -78,13 +78,7 @@ kpower <- function(alignment,
   )
 
   # --- Step 2: Select K_best ------------------------------------------------
-  K_best    <- K_values[which.min(empirical_ic[[ic]])]
-  best_fit  <- readRDS(file.path(
-    emp_outdir, paste0("empirical_K", K_best),
-    paste0("empirical_K", K_best, ".rds")  # cached by fit_all_K if added later
-  ))
-
-  # Re-run to recover the fit object (treefile + logfile paths)
+  K_best     <- K_values[which.min(empirical_ic[[ic]])]
   best_label  <- paste0("empirical_K", K_best)
   best_prefix <- make_prefix(emp_outdir, best_label)
   best_fit <- list(
@@ -92,7 +86,8 @@ kpower <- function(alignment,
     model_string = if (K_best == 1) base_model else
                      paste0(base_model, mix_type, K_best),
     treefile     = paste0(best_prefix, ".treefile"),
-    logfile      = paste0(best_prefix, ".log")
+    logfile      = paste0(best_prefix, ".log"),
+    iqtree_file  = paste0(best_prefix, ".iqtree")
   )
 
   message("K_best = ", K_best, " (selected by ", ic, ")")
