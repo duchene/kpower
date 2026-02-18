@@ -24,48 +24,33 @@ parse_iqtree_report <- function(iqtree_file) {
   )
 }
 
-#' Extract the AliSim command string from an IQ-TREE report file (.iqtree)
+#' Extract the plain AliSim command string from an IQ-TREE report file
 #'
 #' IQ-TREE appends an "ALISIM COMMAND" section at the end of every `.iqtree`
-#' report file containing two ready-to-use invocations: one for a plain
-#' simulation and one that mimics the empirical alignment's gap pattern. This
-#' function locates that section and returns the appropriate command string,
-#' avoiding the need to reconstruct the model specification manually (which is
-#' error-prone for complex mixture model strings).
+#' report file. This function extracts the plain simulation command (starting
+#' with `--alisim simulated_MSA`), which contains the fully-specified fitted
+#' model string, tree path, and alignment length. `simulate_alignments()` then
+#' blends this with gap mimicking by replacing the output prefix and appending
+#' `-s original_alignment`.
 #'
 #' @param iqtree_file Path to a `.iqtree` report file.
-#' @param mimic_gaps Logical; if TRUE (default) return the command that mimics
-#'   the empirical gap pattern (`--alisim mimicked_MSA ...`). If FALSE return
-#'   the plain simulation command (`--alisim simulated_MSA ...`).
-#' @return Character string of the full AliSim argument line, or NULL if the
+#' @return Character string of the plain AliSim argument line, or NULL if the
 #'   section is not found (caller falls back to constructing the command).
-parse_alisim_string <- function(iqtree_file, mimic_gaps = TRUE) {
+parse_alisim_string <- function(iqtree_file) {
   if (!file.exists(iqtree_file)) return(NULL)
 
   lines <- readLines(iqtree_file)
 
-  # Locate the ALISIM COMMAND section header
   section_idx <- grep("^ALISIM COMMAND", lines)
   if (length(section_idx) == 0) return(NULL)
 
-  # Work only with lines after the section header
   after <- lines[seq(section_idx[1] + 1, length(lines))]
 
-  # Find all lines that contain "--alisim" within this section
-  hit_idx <- grep("--alisim", after)
-  if (length(hit_idx) == 0) return(NULL)
-
-  # IQ-TREE writes two --alisim lines:
-  #   1. "--alisim simulated_MSA ..."  — plain simulation
-  #   2. "--alisim mimicked_MSA ..."   — gap-mimicking simulation
-  # Select the appropriate one based on mimic_gaps.
-  if (mimic_gaps) {
-    target_idx <- grep("--alisim\\s+mimicked", after)
-    if (length(target_idx) == 0) target_idx <- hit_idx  # fall back to first
-  } else {
-    target_idx <- grep("--alisim\\s+simulated", after)
-    if (length(target_idx) == 0) target_idx <- hit_idx
-  }
+  # The plain command starts directly with "--alisim simulated_MSA ..."
+  # (no binary prefix) and carries the full -m and -t specification.
+  target_idx <- grep("^--alisim\\s+simulated", after)
+  if (length(target_idx) == 0) target_idx <- grep("^--alisim", after)
+  if (length(target_idx) == 0) return(NULL)
 
   raw <- trimws(after[target_idx[1]])
   if (!nzchar(raw)) return(NULL)

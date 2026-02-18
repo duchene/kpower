@@ -18,9 +18,6 @@
 #'   `"AIC"`, `"AICc"`, or `"BIC"` (default `"BIC"`).
 #' @param B Integer number of parametric bootstrap replicates (default 1000).
 #' @param seed Integer random seed passed to AliSim (default 1).
-#' @param mimic_gaps Logical; if TRUE (default) simulate using the
-#'   gap-mimicking AliSim command from the `.iqtree` report, reproducing the
-#'   empirical alignment's gap and missing-data pattern.
 #' @param outdir Directory for all IQ-TREE output files. Defaults to a
 #'   temporary directory.
 #' @param iqtree_bin Path to the IQ-TREE executable. Detected automatically
@@ -50,7 +47,6 @@ kpower <- function(alignment,
                    ic         = "BIC",
                    B          = 1000L,
                    seed       = 1L,
-                   mimic_gaps = TRUE,
                    outdir     = tempdir(),
                    iqtree_bin = find_iqtree(),
                    threads    = "AUTO",
@@ -97,11 +93,11 @@ kpower <- function(alignment,
   message("Simulating ", B, " alignments of ", n_sites, " sites via AliSim ...")
   sim_files <- simulate_alignments(
     fit_result = best_fit,
+    alignment  = alignment,
     n_sites    = n_sites,
     B          = B,
     outdir     = outdir,
     seed       = seed,
-    mimic_gaps = mimic_gaps,
     iqtree_bin = iqtree_bin,
     threads    = threads
   )
