@@ -108,6 +108,16 @@ assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
     sim_results <- lapply(seq_along(sim_files), run_one)
   }
 
+  # mclapply returns error objects for failed workers; detect and report them
+  failed <- vapply(sim_results, inherits, logical(1), "error")
+  if (any(failed)) {
+    idx <- which(failed)
+    stop(
+      "Bootstrap refit(s) failed for replicate(s): ", paste(idx, collapse = ", "),
+      "\nFirst error: ", conditionMessage(sim_results[[idx[1]]])
+    )
+  }
+
   sim_ic <- do.call(rbind, sim_results)
 
   # For each replicate, which K minimises the chosen IC?
