@@ -17,13 +17,13 @@
 #' @param outdir Directory in which to write simulated alignments.
 #' @param seed Integer random seed for reproducibility.
 #' @param iqtree_bin Path to the IQ-TREE executable.
-#' @param threads Number of threads (default `"AUTO"`).
+#' @param threads Number of threads (default `"1"`).
 #' @param timeout Seconds before the run is killed (default 7200).
 #' @return Character vector of length B giving paths to the simulated files.
 simulate_alignments <- function(fit_result, alignment, n_sites, B = 1000,
                                 outdir = tempdir(), seed = 1,
                                 iqtree_bin = find_iqtree(),
-                                threads = "AUTO", timeout = 7200) {
+                                threads = "1", timeout = 7200) {
   sim_dir    <- file.path(outdir, "simulations")
   dir.create(sim_dir, showWarnings = FALSE, recursive = TRUE)
   sim_prefix <- file.path(sim_dir, "sim")

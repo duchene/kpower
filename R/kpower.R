@@ -22,7 +22,7 @@
 #'   temporary directory.
 #' @param iqtree_bin Path to the IQ-TREE executable. Detected automatically
 #'   if not supplied.
-#' @param threads Number of threads per IQ-TREE run (default `"AUTO"`).
+#' @param threads Number of threads per IQ-TREE run (default `"1"`).
 #' @param n_cores Number of R-level cores for parallel simulation refits
 #'   (default 1).
 #' @param timeout Per-run timeout in seconds (default 3600).

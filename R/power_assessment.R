@@ -19,7 +19,7 @@
 fit_all_K <- function(alignment, K_values, base_model = "GTR",
                       mix_type = "+R", fixed_tree = "NJ", outdir = tempdir(),
                       label_prefix = "", iqtree_bin = find_iqtree(),
-                      threads = "AUTO", timeout = 3600) {
+                      threads = "1", timeout = 3600) {
   results <- lapply(K_values, function(K) {
     label <- paste0(label_prefix, "K", K)
     fit   <- fit_model(
@@ -77,7 +77,7 @@ fit_all_K <- function(alignment, K_values, base_model = "GTR",
 assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
                          base_model = "GTR", mix_type = "+R",
                          fixed_tree = "NJ", outdir = tempdir(),
-                         iqtree_bin = find_iqtree(), threads = "AUTO",
+                         iqtree_bin = find_iqtree(), threads = "1",
                          n_cores = 1, timeout = 3600) {
   sim_outdir <- file.path(outdir, "sim_fits")
   dir.create(sim_outdir, showWarnings = FALSE, recursive = TRUE)

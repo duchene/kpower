@@ -43,13 +43,13 @@ run_iqtree <- function(iqtree_bin, args, timeout = 3600) {
 #' @param label Short label used to build the `--prefix` (default derived from
 #'   K and mix_type).
 #' @param iqtree_bin Path to the IQ-TREE executable.
-#' @param threads Number of threads (passed to `-T`; default `"AUTO"`).
+#' @param threads Number of threads (passed to `-T`; default `"1"`).
 #' @param timeout Seconds before the run is killed (default 3600).
 #' @return Named list: K, model_string, lnL, df, AIC, AICc, BIC, prefix,
 #'   treefile, logfile, iqtree_file.
 fit_model <- function(alignment, K, base_model = "GTR", mix_type = "+R",
                       fixed_tree = "NJ", outdir = tempdir(), label = NULL,
-                      iqtree_bin = find_iqtree(), threads = "AUTO",
+                      iqtree_bin = find_iqtree(), threads = "1",
                       timeout = 3600) {
   model_str <- if (K == 1) base_model else paste0(base_model, mix_type, K)
   if (is.null(label)) label <- paste0("K", K)
