@@ -16,15 +16,16 @@
 #' @param mix_type Mixture family: `"+R"` (FreeRate, default), `"+H"` (GHOST).
 #' @param ic Information criterion used to select K_best and compute power:
 #'   `"AIC"`, `"AICc"`, or `"BIC"` (default `"BIC"`).
+#' @param fixed_tree Tree handling: `"NJ"` (per-K BioNJ, default), a path to
+#'   a fixed tree file, or `NULL` (full heuristic search).
 #' @param B Integer number of parametric bootstrap replicates (default 1000).
 #' @param seed Integer random seed passed to AliSim (default 1).
 #' @param outdir Directory for all IQ-TREE output files. Defaults to a
 #'   temporary directory.
 #' @param iqtree_bin Path to the IQ-TREE executable. Detected automatically
 #'   if not supplied.
-#' @param threads Number of threads per IQ-TREE run (default `"1"`).
-#' @param n_cores Number of R-level cores for parallel simulation refits
-#'   (default 1).
+#' @param n_cores Number of cores controlling both R-level parallel bootstrap
+#'   refits and IQ-TREE's `-T` thread count (default 1).
 #' @param timeout Per-run timeout in seconds (default 3600).
 #'
 #' @return An object of class `kpower_result`, a list containing:
@@ -50,12 +51,12 @@ kpower <- function(alignment,
                    seed       = 1L,
                    outdir     = tempdir(),
                    iqtree_bin = find_iqtree(),
-                   threads    = "AUTO",
                    n_cores    = 1L,
                    timeout    = 3600L) {
 
-  ic <- match.arg(ic, c("AIC", "AICc", "BIC"))
+  ic      <- match.arg(ic, c("AIC", "AICc", "BIC"))
   K_values <- seq.int(K_min, K_max)
+  threads  <- as.character(n_cores)   # n_cores drives IQ-TREE -T and mclapply
 
   emp_outdir <- file.path(outdir, "empirical")
   dir.create(emp_outdir, showWarnings = FALSE, recursive = TRUE)
