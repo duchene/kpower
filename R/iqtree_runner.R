@@ -24,17 +24,21 @@ run_iqtree <- function(iqtree_bin, args, timeout = 3600) {
 
 #' Fit a mixture model with K categories to an alignment
 #'
-#' Calls IQ-TREE with `--fast` and returns parsed IC scores. The tree is not
-#' fixed so that topology is co-estimated with the model (empirical fits only;
-#' simulation refits should pass a fixed tree via `tree`).
+#' Calls IQ-TREE and returns parsed IC scores.
+#'
+#' Tree topology handling is controlled by `fixed_tree`:
+#' - `"NJ"`: compute a BioNJ tree and fix it (`-t BIONJ --tree-fix`). Very
+#'   fast; each K gets its own NJ topology based on its model distances.
+#' - A file path: fix the supplied tree (`-t path --tree-fix`). Useful for
+#'   enforcing a shared topology across all K fits.
+#' - `NULL`: heuristic tree search with `--fast` (slowest; current default).
 #'
 #' @param alignment Path to the input alignment (FASTA or PHYLIP).
 #' @param K Integer number of mixture categories.
 #' @param base_model Base substitution model string (e.g. `"GTR"`, `"LG"`).
 #' @param mix_type Mixture type suffix: `"+R"` (FreeRate), `"+H"` (GHOST),
 #'   etc. Default `"+R"`.
-#' @param tree Optional path to a fixed tree file. If supplied, `--tree-fix`
-#'   is added.
+#' @param fixed_tree Tree handling: `"NJ"`, a path to a tree file, or `NULL`.
 #' @param outdir Directory in which to write IQ-TREE output files.
 #' @param label Short label used to build the `--prefix` (default derived from
 #'   K and mix_type).
@@ -44,7 +48,7 @@ run_iqtree <- function(iqtree_bin, args, timeout = 3600) {
 #' @return Named list: K, model_string, lnL, df, AIC, AICc, BIC, prefix,
 #'   treefile, logfile, iqtree_file.
 fit_model <- function(alignment, K, base_model = "GTR", mix_type = "+R",
-                      tree = NULL, outdir = tempdir(), label = NULL,
+                      fixed_tree = "NJ", outdir = tempdir(), label = NULL,
                       iqtree_bin = find_iqtree(), threads = "AUTO",
                       timeout = 3600) {
   model_str <- if (K == 1) base_model else paste0(base_model, mix_type, K)
@@ -54,14 +58,17 @@ fit_model <- function(alignment, K, base_model = "GTR", mix_type = "+R",
   args <- c(
     "-s", alignment,
     "-m", model_str,
-    "--fast",
     "--prefix", prefix,
     "-T", as.character(threads),
     "--redo"
   )
 
-  if (!is.null(tree)) {
-    args <- c(args, "-t", tree, "--tree-fix")
+  if (identical(fixed_tree, "NJ")) {
+    args <- c(args, "-t", "BIONJ", "--tree-fix")
+  } else if (!is.null(fixed_tree)) {
+    args <- c(args, "-t", fixed_tree, "--tree-fix")
+  } else {
+    args <- c(args, "--fast")
   }
 
   run_iqtree(iqtree_bin, args, timeout = timeout)

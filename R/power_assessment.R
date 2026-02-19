@@ -8,7 +8,8 @@
 #' @param K_values Integer vector of K values to fit.
 #' @param base_model Base substitution model string.
 #' @param mix_type Mixture type suffix (e.g. `"+R"`).
-#' @param tree Optional fixed tree path.
+#' @param fixed_tree Tree handling passed to `fit_model()`: `"NJ"`, a file
+#'   path, or `NULL`.
 #' @param outdir Output directory for IQ-TREE files.
 #' @param label_prefix String prepended to the per-K label for `--prefix`.
 #' @param iqtree_bin Path to IQ-TREE executable.
@@ -16,7 +17,7 @@
 #' @param timeout Per-run timeout in seconds.
 #' @return Data frame with columns: K, lnL, df, AIC, AICc, BIC.
 fit_all_K <- function(alignment, K_values, base_model = "GTR",
-                      mix_type = "+R", tree = NULL, outdir = tempdir(),
+                      mix_type = "+R", fixed_tree = "NJ", outdir = tempdir(),
                       label_prefix = "", iqtree_bin = find_iqtree(),
                       threads = "AUTO", timeout = 3600) {
   results <- lapply(K_values, function(K) {
@@ -26,7 +27,7 @@ fit_all_K <- function(alignment, K_values, base_model = "GTR",
       K          = K,
       base_model = base_model,
       mix_type   = mix_type,
-      tree       = tree,
+      fixed_tree = fixed_tree,
       outdir     = outdir,
       label      = label,
       iqtree_bin = iqtree_bin,
@@ -60,8 +61,8 @@ fit_all_K <- function(alignment, K_values, base_model = "GTR",
 #'   `"AICc"`, or `"BIC"` (default `"BIC"`).
 #' @param base_model Base substitution model string.
 #' @param mix_type Mixture type suffix.
-#' @param empirical_tree Path to the tree estimated from empirical data.
-#'   Passed as a fixed tree for simulation refits.
+#' @param fixed_tree Tree handling for simulation refits: `"NJ"`, a file
+#'   path, or `NULL`. Default `"NJ"`.
 #' @param outdir Output directory for IQ-TREE files.
 #' @param iqtree_bin Path to IQ-TREE executable.
 #' @param threads Number of threads.
@@ -75,7 +76,7 @@ fit_all_K <- function(alignment, K_values, base_model = "GTR",
 #'   }
 assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
                          base_model = "GTR", mix_type = "+R",
-                         empirical_tree = NULL, outdir = tempdir(),
+                         fixed_tree = "NJ", outdir = tempdir(),
                          iqtree_bin = find_iqtree(), threads = "AUTO",
                          n_cores = 1, timeout = 3600) {
   sim_outdir <- file.path(outdir, "sim_fits")
@@ -88,7 +89,7 @@ assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
       K_values     = K_values,
       base_model   = base_model,
       mix_type     = mix_type,
-      tree         = empirical_tree,
+      fixed_tree   = fixed_tree,
       outdir       = sim_outdir,
       label_prefix = label_prefix,
       iqtree_bin   = iqtree_bin,
