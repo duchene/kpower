@@ -24,10 +24,12 @@ meaningful.
 ### Step 1 — Fit all K values to empirical data
 
 For a user-specified maximum K, fit models +R1, +R2, ..., +RK to the
-empirical alignment using IQ-TREE (`--fast`). Record log-likelihood, AIC,
-BIC, and AICc for each K. +R1 corresponds to a single-rate model (no
-FreeRate specification); +R2 upward are FreeRate models with increasing
-numbers of rate categories.
+empirical alignment using IQ-TREE. Each K gets its own BioNJ tree
+(`-t BIONJ --tree-fix`), which is fast to compute and avoids conflating
+model fit with tree topology variation. Record log-likelihood, AIC, BIC,
+and AICc for each K. +R1 corresponds to a single-rate model (no FreeRate
+specification); +R2 upward are FreeRate models with increasing numbers of
+rate categories.
 
 ### Step 2 — Identify K_best
 
@@ -37,15 +39,20 @@ criterion (default: BIC). This is the reference model for simulation.
 ### Step 3 — Parametric bootstrap simulation
 
 Simulate B alignments (default: 1000) from the K_best model using IQ-TREE's
-AliSim, with the fitted tree and all parameter estimates from the K_best
-run. Use `--site-rate SAMPLING` to correctly propagate the rate category
-structure. All simulated alignments have the same length and number of taxa
-as the empirical data.
+AliSim. The plain AliSim command is extracted from the `ALISIM COMMAND`
+section of the K_best `.iqtree` report (which carries the fully-specified
+model string and fitted tree path), then the original empirical alignment is
+appended via `-s` to reproduce the observed gap pattern. All simulated
+alignments have the same length and number of taxa as the empirical data.
+Falls back to constructing the AliSim command from scratch if the section is
+not found.
 
 ### Step 4 — Refit all K values on each simulated alignment
 
 For each of the B simulated alignments, refit +R1, +R2, ..., +RK using
-IQ-TREE (`--fast`). Record AIC/BIC/AICc/lnL for each K on each replicate.
+IQ-TREE with a per-K BioNJ tree (`-t BIONJ --tree-fix`). Record
+AIC/BIC/AICc/lnL for each K on each replicate. Replicates are processed
+in parallel via `parallel::mclapply()` when `n_cores > 1`.
 
 ### Step 5 — Power assessment and output
 
@@ -86,29 +93,34 @@ the same IQ-TREE wrapper and simulation infrastructure:
 
 ## IQ-TREE Integration
 
-### Empirical fits
+### Empirical fits (and simulation refits)
 ```
-iqtree2 -s alignment.fasta -m GTR+R{K} --fast --prefix out_K{K} -T AUTO
+iqtree3 -s alignment.fasta -m GTR+R{K} -t BIONJ --tree-fix
+        --prefix out_K{K} -T {n_cores} --redo
 ```
+Each K gets its own BioNJ tree; branch lengths are optimised under that K's
+model. This avoids the ~16-second multi-threading benchmark triggered by
+`-T AUTO` and keeps runs fast without a full heuristic tree search.
 
 ### AliSim simulation from K_best
+The plain AliSim command is parsed from the `ALISIM COMMAND` section of the
+K_best `.iqtree` report, then modified:
 ```
-iqtree2 --alisim sim_prefix -m GTR+R{K_best} -t K_best.treefile
+iqtree3 --alisim sim_prefix -m "GTR{...}+R{K_best}{...}" -t K_best.treefile
+        -s empirical_alignment   # gap mimicking
         --length {n_sites} --num-alignments {B}
-        --site-rate SAMPLING --seed {seed} -T AUTO
+        --seed {seed} -T {n_cores} --redo
 ```
-
-### Refit on simulated alignments
-```
-iqtree2 -s sim_prefix_{b}.fasta -m GTR+R{K} --fast
-        --prefix sim{b}_K{K} -T AUTO
-```
+The quoted model string (with fitted rate/frequency parameters) is tokenised
+character-by-character to avoid shell-quoting issues when passed through
+`processx`.
 
 Key flags:
-- `--fast`: heuristic tree search; essential for the B x K total runs
+- `-t BIONJ --tree-fix`: compute BioNJ tree and fix topology for likelihood
+  optimisation; much faster than heuristic search
 - `--prefix`: unique per-run prefix to avoid output file collisions
 - `--alisim`: activates AliSim simulation mode
-- `--site-rate SAMPLING`: samples per-site rate categories from fitted weights
+- `-s` (in AliSim): reproduce gap pattern from the empirical alignment
 - `--redo`: overwrites existing checkpoints in automated runs
 - Parse `.iqtree` report files for `Log-likelihood`, `AIC`, `BIC`,
   `Number of free parameters`
@@ -144,8 +156,9 @@ kpower/
   captured separately, timeout support
 - Each IQ-TREE run gets its own subdirectory via `--prefix` to prevent
   output file collisions across parallel bootstrap replicates
-- Parallelism over bootstrap replicates via `parallel::mclapply()` or
-  `future.apply::future_lapply()` (user-configurable)
+- Parallelism over bootstrap replicates via `parallel::mclapply()`; the
+  single `n_cores` parameter drives both R-level parallelism and IQ-TREE's
+  `-T` thread count
 - Model family ("+R", "+H", "+C") is a string parameter, enabling extension
   without structural changes to the core functions
 - `find_iqtree()` searches PATH then a user option `kpower.iqtree_path`
@@ -160,8 +173,8 @@ kpower/
 `kpower()` returns a list (class `kpower_result`) containing:
 
 - `$empirical`: data frame of K, lnL, AIC, BIC, AICc for the empirical runs
-- `$simulations`: data frame of replicate, K, lnL, AIC, BIC, AICc for all
-  B x K simulation fits
+- `$sim_ic`: long-format data frame of replicate, K, lnL, AIC, BIC, AICc
+  for all B x K simulation fits
 - `$K_best`: the K selected from empirical data
 - `$power`: proportion of simulations that recover K_best under the chosen IC
 - `$plot`: a ggplot2 object (IC profile figure)
