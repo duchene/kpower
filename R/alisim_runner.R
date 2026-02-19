@@ -66,7 +66,10 @@ simulate_alignments <- function(fit_result, alignment, n_sites, B = 1000,
 # for gap mimicking.
 build_args_from_alisim_string <- function(alisim_string, sim_prefix, alignment,
                                           B, seed, n_sites, threads) {
-  tokens <- strsplit(trimws(alisim_string), "\\s+")[[1]]
+  # Tokenise respecting double-quoted strings (e.g. the -m model string).
+  # processx passes arguments directly to the binary without a shell, so
+  # quotes must be stripped rather than preserved.
+  tokens <- tokenise_command(alisim_string)
 
   # Drop binary name if present
   if (grepl("^iqtree", tokens[1], ignore.case = TRUE)) tokens <- tokens[-1]
@@ -100,6 +103,31 @@ build_alisim_args <- function(fit_result, alignment, sim_prefix, n_sites, B,
     "-T",               as.character(threads),
     "--redo"
   )
+}
+
+# Tokenise a command string respecting double-quoted substrings.
+# Quoted tokens have their surrounding double quotes stripped so that
+# processx can pass them directly to the binary without shell interpretation.
+tokenise_command <- function(s) {
+  tokens  <- character(0)
+  current <- ""
+  in_quote <- FALSE
+  chars <- strsplit(trimws(s), "")[[1]]
+
+  for (ch in chars) {
+    if (ch == '"') {
+      in_quote <- !in_quote   # toggle; do not append the quote character
+    } else if (ch == " " && !in_quote) {
+      if (nzchar(current)) {
+        tokens  <- c(tokens, current)
+        current <- ""
+      }
+    } else {
+      current <- paste0(current, ch)
+    }
+  }
+  if (nzchar(current)) tokens <- c(tokens, current)
+  tokens
 }
 
 # Helper: find a flag in a token vector and replace its next value,
