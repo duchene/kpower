@@ -39,7 +39,7 @@ plot_kpower <- function(empirical_ic, sim_ic, K_best, power, ic = "BIC") {
         group = replicate
       ),
       colour  = "#4393c3",
-      alpha   = 0.05,
+      alpha   = 0.15,
       linewidth = 0.3
     ) +
     # Empirical IC profile — thick, solid
