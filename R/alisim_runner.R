@@ -146,3 +146,104 @@ replace_or_append <- function(tokens, flag, value, flag_only = FALSE) {
   }
   tokens
 }
+
+# ---------------------------------------------------------------------------
+# MAST simulation: per-class AliSim + concatenation
+# ---------------------------------------------------------------------------
+
+#' Simulate replicate alignments under a fitted MAST model
+#'
+#' For each tree class in the MAST model, runs AliSim to generate B partial
+#' alignments with site counts proportional to the class weight.
+#' The per-class replicates are then concatenated site-wise to produce B
+#' full-length simulated alignments.
+#'
+#' @param mast_result Named list from the K_best MAST fit, containing at
+#'   least: `treefile`, `iqtree_file`, `tree_weights`, `model_string`.
+#' @param base_model Base substitution model (e.g. `"GTR"`).
+#' @param n_sites Integer total number of sites in the empirical alignment.
+#' @param B Integer number of replicate alignments.
+#' @param seed Integer random seed (each class is offset by +k).
+#' @param outdir Output directory.
+#' @param iqtree_bin Path to IQ-TREE.
+#' @param threads Number of threads.
+#' @param timeout AliSim timeout in seconds.
+#' @return Character vector of length B giving paths to the combined simulated
+#'   alignment files.
+simulate_mast_alignments <- function(mast_result, base_model, n_sites, B,
+                                     seed, outdir, iqtree_bin, threads,
+                                     timeout = 7200) {
+  sim_dir <- file.path(outdir, "mast_simulations")
+  dir.create(sim_dir, showWarnings = FALSE, recursive = TRUE)
+
+  weights <- mast_result$tree_weights
+  K       <- length(weights)
+
+  # Deterministic per-class site counts (proportional to weights)
+  n_per_class <- round(weights * n_sites)
+  residual    <- n_sites - sum(n_per_class)
+  if (residual != 0) {
+    n_per_class[which.max(n_per_class)] <-
+      n_per_class[which.max(n_per_class)] + residual
+  }
+
+  # Parse shared model parameters and build AliSim model string
+  params    <- parse_mast_model_params(mast_result$iqtree_file)
+  model_str <- build_alisim_model_string(base_model, params)
+
+  # Per-class trees from the MAST treefile (one tree per line)
+  all_trees <- readLines(mast_result$treefile)
+  if (length(all_trees) != K) {
+    stop("MAST treefile has ", length(all_trees),
+         " trees but tree_weights has ", K, " entries.")
+  }
+
+  # --- Run AliSim once per class (each producing B alignments) ---------------
+  class_dirs <- character(K)
+  for (k in seq_len(K)) {
+    class_dir <- file.path(sim_dir, paste0("class_", k))
+    dir.create(class_dir, showWarnings = FALSE, recursive = TRUE)
+
+    tree_file <- file.path(class_dir, "tree.newick")
+    writeLines(all_trees[k], tree_file)
+
+    sim_prefix <- file.path(class_dir, "sim")
+    args <- c(
+      "--alisim",         sim_prefix,
+      "-m",               model_str,
+      "-t",               tree_file,
+      "--length",         as.character(n_per_class[k]),
+      "--num-alignments", as.character(B),
+      "--seed",           as.character(seed + k),
+      "-T",               threads,
+      "--redo"
+    )
+    message("  Simulating ", n_per_class[k], " sites for tree class ", k,
+            " (weight ", round(weights[k], 4), ") ...")
+    run_iqtree(iqtree_bin, args, timeout = timeout)
+    class_dirs[k] <- class_dir
+  }
+
+  # --- Concatenate per-class replicates into full alignments -----------------
+  combined_dir <- file.path(sim_dir, "combined")
+  dir.create(combined_dir, showWarnings = FALSE, recursive = TRUE)
+
+  combined_files <- character(B)
+  for (b in seq_len(B)) {
+    class_alns <- lapply(seq_len(K), function(k) {
+      # AliSim writes sim_1.phy, sim_2.phy, etc.
+      f <- file.path(class_dirs[k], paste0("sim_", b, ".phy"))
+      if (!file.exists(f)) f <- file.path(class_dirs[k], paste0("sim_", b, ".fa"))
+      if (!file.exists(f)) stop("Missing simulated file for class ", k,
+                                ", replicate ", b, ": ", f)
+      read_alignment(f)
+    })
+
+    combined <- concatenate_alignments(class_alns)
+    combined_files[b] <- file.path(combined_dir,
+                                   paste0("sim_", pad_int(b), ".phy"))
+    write_phylip(combined, combined_files[b])
+  }
+
+  combined_files
+}

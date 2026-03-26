@@ -45,17 +45,12 @@ check_iqtree <- function(iqtree_bin = NULL) {
 #' @param alignment Path to a FASTA or PHYLIP alignment file.
 #' @return Integer number of sites.
 alignment_length <- function(alignment) {
-  lines <- readLines(alignment, n = 10)
-  first <- trimws(lines[nzchar(trimws(lines))][1])
-  # PHYLIP: first non-blank line is "<ntaxa> <nsites>"
-  if (grepl("^[0-9]+\\s+[0-9]+$", first)) {
-    return(as.integer(strsplit(first, "\\s+")[[1]][2]))
-  }
-  # FASTA: concatenate all non-header lines from the first sequence
-  all_lines <- readLines(alignment)
-  seq_lines  <- all_lines[!startsWith(all_lines, ">")]
-  nchar(paste(seq_lines[nzchar(seq_lines)], collapse = ""))
+  seqs <- read_alignment(alignment)
+  nchar(seqs[1])
 }
+
+# Null-coalesce operator (base R does not have %||% before 4.3)
+`%||%` <- function(a, b) if (!is.null(a)) a else b
 
 #' Build a unique run prefix inside a directory
 #'

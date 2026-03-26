@@ -129,3 +129,76 @@ assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
 
   list(sim_ic = sim_ic, power = power)
 }
+
+#' Run the parametric bootstrap power assessment for MAST models
+#'
+#' For each simulated alignment, fits K = 1 (single-tree BioNJ) and
+#' K = 2..K_max (MAST with top-K ranked trees).
+#'
+#' @param sim_files Character vector of paths to simulated alignments.
+#' @param K_values Integer vector of K values.
+#' @param K_best Integer; K selected from empirical data.
+#' @param ic Character; IC for power calculation.
+#' @param base_model Base substitution model string.
+#' @param rate_model Rate heterogeneity string (e.g. `"+R3"`).
+#' @param tree_files Named list of tree file paths per K (from
+#'   `build_mast_tree_files()`).
+#' @param outdir Output directory.
+#' @param iqtree_bin Path to IQ-TREE.
+#' @param threads Number of threads.
+#' @param n_cores Number of cores for parallel replicates.
+#' @param timeout Per-run timeout in seconds.
+#' @return List with `sim_ic` (data frame) and `power` (numeric).
+assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
+                              base_model, rate_model, tree_files,
+                              outdir, iqtree_bin, threads,
+                              n_cores = 1, timeout = 3600) {
+  sim_outdir <- file.path(outdir, "mast_sim_fits")
+  dir.create(sim_outdir, showWarnings = FALSE, recursive = TRUE)
+
+  run_one <- function(b) {
+    label_prefix <- paste0("sim", pad_int(b), "_")
+    tbl <- fit_mast_all_K(
+      alignment    = sim_files[b],
+      K_values     = K_values,
+      base_model   = base_model,
+      rate_model   = rate_model,
+      tree_files   = tree_files,
+      outdir       = sim_outdir,
+      label_prefix = label_prefix,
+      iqtree_bin   = iqtree_bin,
+      threads      = threads,
+      timeout      = timeout
+    )
+    tbl$replicate <- b
+    tbl
+  }
+
+  if (n_cores > 1 && requireNamespace("parallel", quietly = TRUE)) {
+    sim_results <- parallel::mclapply(
+      seq_along(sim_files), run_one, mc.cores = n_cores
+    )
+  } else {
+    sim_results <- lapply(seq_along(sim_files), run_one)
+  }
+
+  failed <- vapply(sim_results, inherits, logical(1), "error")
+  if (any(failed)) {
+    idx <- which(failed)
+    stop(
+      "MAST bootstrap refit(s) failed for replicate(s): ",
+      paste(idx, collapse = ", "),
+      "\nFirst error: ", conditionMessage(sim_results[[idx[1]]])
+    )
+  }
+
+  sim_ic <- do.call(rbind, sim_results)
+
+  best_per_rep <- tapply(
+    sim_ic[[ic]], sim_ic$replicate,
+    function(x) K_values[which.min(x)]
+  )
+  power <- mean(best_per_rep == K_best)
+
+  list(sim_ic = sim_ic, power = power)
+}

@@ -21,22 +21,32 @@ meaningful.
 
 ## Statistical Framework
 
-### Step 1 — Fit all K values to empirical data
+### Standard pathway (+R, +H, *H)
 
-For a user-specified maximum K, fit models +R1, +R2, ..., +RK to the
-empirical alignment using IQ-TREE. Each K gets its own BioNJ tree
-(`-t BIONJ --tree-fix`), which is fast to compute and avoids conflating
-model fit with tree topology variation. Record log-likelihood, AIC, BIC,
-and AICc for each K. +R1 corresponds to a single-rate model (no FreeRate
-specification); +R2 upward are FreeRate models with increasing numbers of
-rate categories.
+#### Step 1 — Fit all K values to empirical data
 
-### Step 2 — Identify K_best
+For a user-specified maximum K, fit mixture models to the empirical
+alignment using IQ-TREE.  The model family is controlled by `mix_type`:
+
+- `+R{K}`: FreeRate — K rate categories with freely estimated rates and
+  weights.
+- `+H{K}`: GHOST (linked) — K branch-length classes sharing one
+  substitution model.
+- `*H{K}`: GHOST (unlinked) — K branch-length classes, each with its own
+  substitution model parameters.
+
+Each K gets its own BioNJ tree (`-t BIONJ --tree-fix`), which is fast to
+compute and avoids conflating model fit with tree topology variation.
+Record log-likelihood, AIC, BIC, and AICc for each K.
+
+For +H and *H models, site-class probabilities are saved via `-wspm`.
+
+#### Step 2 — Identify K_best
 
 Select K_best from the empirical runs using the user-chosen information
 criterion (default: BIC). This is the reference model for simulation.
 
-### Step 3 — Parametric bootstrap simulation
+#### Step 3 — Parametric bootstrap simulation
 
 Simulate B alignments (default: 1000) from the K_best model using IQ-TREE's
 AliSim. The plain AliSim command is extracted from the `ALISIM COMMAND`
@@ -47,14 +57,14 @@ alignments have the same length and number of taxa as the empirical data.
 Falls back to constructing the AliSim command from scratch if the section is
 not found.
 
-### Step 4 — Refit all K values on each simulated alignment
+#### Step 4 — Refit all K values on each simulated alignment
 
-For each of the B simulated alignments, refit +R1, +R2, ..., +RK using
-IQ-TREE with a per-K BioNJ tree (`-t BIONJ --tree-fix`). Record
-AIC/BIC/AICc/lnL for each K on each replicate. Replicates are processed
-in parallel via `parallel::mclapply()` when `n_cores > 1`.
+For each of the B simulated alignments, refit all K values using IQ-TREE
+with a per-K BioNJ tree. Record AIC/BIC/AICc/lnL for each K on each
+replicate. Replicates are processed in parallel via `parallel::mclapply()`
+when `n_cores > 1`.
 
-### Step 5 — Power assessment and output
+#### Step 5 — Power assessment and output
 
 Two complementary summaries:
 
@@ -70,60 +80,133 @@ y-axis showing:
 - The power estimate (proportion of simulations selecting K_best) displayed
   in the figure legend
 
-This plot reveals at a glance whether the empirical IC profile falls within
-the range expected under the true model, and whether the minimum at K_best
-is a sharp, consistent feature of the simulations or a weak, noisy signal.
+### MAST pathway (+T)
+
+When `mix_type = "+T"`, `kpower` assesses the power to discriminate the
+number of tree-topology classes (MAST model).  Candidate trees are derived
+automatically from the alignment itself.
+
+#### Step 1 — Split alignment into windows
+
+Divide the alignment into K_max non-overlapping windows of near-equal size.
+
+#### Step 2 — Estimate per-window trees
+
+Run IQ-TREE with ModelFinder (`-m MFP`) and full heuristic tree search on
+each window.  This yields K_max candidate trees and, as a side product,
+the best-fit model for each window.
+
+#### Step 3 — Determine within-class rate heterogeneity
+
+Summarise the rate heterogeneity component (e.g. `+R3`, `+G4`) across the
+per-window best models.  The most common FreeRate category count is used;
+falls back to `+R4` when no clear pattern emerges.
+
+#### Step 4 — Fit MAST with K_max trees
+
+Fit the full MAST model (`base_model+FO+rate_model+T`) to the empirical
+alignment using all K_max candidate trees supplied via `-te`.  Extract
+tree weights.
+
+#### Step 5 — Rank trees and build tree sets
+
+Sort trees by descending weight from the K_max run.  For each K in
+K_min..K_max, build a tree file containing the top-K ranked trees.
+
+#### Step 6 — Fit all K values
+
+- K = 1: standard single-tree BioNJ fit with `base_model+FO+rate_model`
+  (no +T).
+- K >= 2: MAST fit with top-K trees via `-te`.
+
+Record IC scores across all K values.
+
+#### Step 7 — Select K_best
+
+Choose K_best by minimising the chosen IC across the K range.
+
+#### Step 8 — Simulate B alignments
+
+For K_best > 1, simulate from the fitted MAST model by running AliSim once
+per tree class (site count proportional to class weight), then concatenating
+the per-class partial alignments into full replicate alignments.  Model
+parameters (substitution rates, frequencies, rate heterogeneity) are parsed
+from the MAST `.iqtree` report and supplied as a fully parameterised model
+string.  For K_best = 1, standard single-tree AliSim is used with gap
+mimicking.
+
+#### Step 9 — Refit all K on each replicate
+
+For each simulated alignment, refit K = 1..K_max using the same tree sets
+as the empirical analysis (K = 1 via BioNJ, K >= 2 via MAST with the
+top-K ranked trees).
+
+#### Step 10 — Power assessment and output
+
+Identical to the standard pathway: proportion recovering K_best, plus the
+IC profile figure.
 
 ---
 
 ## Supported Model Families
 
-The framework is general across IQ-TREE mixture model families. The initial
-implementation targets `+R{K}`, with the others as natural extensions sharing
-the same IQ-TREE wrapper and simulation infrastructure:
-
-| Family | K controls | IQ-TREE syntax | Priority |
-|---|---|---|---|
-| FreeRate | Rate categories | `+R{K}` | Initial release |
-| Heterotachy (GHOST) | Rate + branch-length classes | `+H{K}` | Next |
-| Empirical profile mixtures | Frequency profiles | `+C10`, `+C20`, ... | Extension |
-| Tree mixtures (MAST) | Tree topologies | `-m "MAST+..."` | Extension |
+| Family | K controls | `mix_type` | IQ-TREE syntax | Status |
+|---|---|---|---|---|
+| FreeRate | Rate categories | `"+R"` | `+R{K}` | Implemented |
+| GHOST (linked) | Rate + branch-length classes | `"+H"` | `+H{K}` | Implemented |
+| GHOST (unlinked) | Per-class substitution models + branch lengths | `"*H"` | `*H{K}` | Implemented |
+| Tree mixtures (MAST) | Tree topologies | `"+T"` | `model+T` with `-te` | Implemented |
+| Empirical profile mixtures | Frequency profiles | — | `+C10`, `+C20`, ... | Planned |
 
 ---
 
 ## IQ-TREE Integration
 
-### Empirical fits (and simulation refits)
+### Standard fits (+R / +H / *H)
 ```
 iqtree3 -s alignment.fasta -m GTR+R{K} -t BIONJ --tree-fix
         --prefix out_K{K} -T {n_cores} --redo
 ```
-Each K gets its own BioNJ tree; branch lengths are optimised under that K's
-model. This avoids the ~16-second multi-threading benchmark triggered by
-`-T AUTO` and keeps runs fast without a full heuristic tree search.
+For +H and *H, the flag `-wspm` is appended to save site-class
+probabilities.
 
-### AliSim simulation from K_best
-The plain AliSim command is parsed from the `ALISIM COMMAND` section of the
-K_best `.iqtree` report, then modified:
+### MAST fits (+T)
+```
+iqtree3 -s alignment.fasta -m GTR+FO+R3+T -te candidate_trees.newick
+        --prefix mast_K{K} -T {n_cores} -wspm --redo
+```
+Candidate trees are supplied one per line in the Newick file passed to
+`-te`.  Tree weights are parsed from the `Tree weights:` line of the
+`.iqtree` report.
+
+### AliSim simulation (standard)
 ```
 iqtree3 --alisim sim_prefix -m "GTR{...}+R{K_best}{...}" -t K_best.treefile
         -s empirical_alignment   # gap mimicking
         --length {n_sites} --num-alignments {B}
         --seed {seed} -T {n_cores} --redo
 ```
-The quoted model string (with fitted rate/frequency parameters) is tokenised
-character-by-character to avoid shell-quoting issues when passed through
-`processx`.
+
+### AliSim simulation (MAST)
+For each tree class k in the MAST model, a separate AliSim call generates
+B partial alignments with site count proportional to class weight:
+```
+iqtree3 --alisim sim_prefix_k -m "GTR{...}+FU{...}+R{n}{...}" -t tree_k.nwk
+        --length {n_k} --num-alignments {B}
+        --seed {seed+k} -T {n_cores} --redo
+```
+Per-class replicates are concatenated site-wise to produce B full-length
+alignments.
 
 Key flags:
 - `-t BIONJ --tree-fix`: compute BioNJ tree and fix topology for likelihood
   optimisation; much faster than heuristic search
+- `-te`: supply fixed tree topologies for MAST (one per line)
 - `--prefix`: unique per-run prefix to avoid output file collisions
 - `--alisim`: activates AliSim simulation mode
 - `-s` (in AliSim): reproduce gap pattern from the empirical alignment
+- `-wspm`: save site-class posterior probabilities
 - `--redo`: overwrites existing checkpoints in automated runs
-- Parse `.iqtree` report files for `Log-likelihood`, `AIC`, `BIC`,
-  `Number of free parameters`
 
 ---
 
@@ -135,18 +218,17 @@ kpower/
 ├── NAMESPACE
 ├── LICENSE
 ├── R/
-│   ├── kpower.R             # Main entry point: kpower()
+│   ├── kpower.R             # Main entry point: kpower(), kpower_mast()
 │   ├── iqtree_runner.R      # Fit one model via IQ-TREE; return parsed results
-│   ├── alisim_runner.R      # Simulate B alignments via AliSim
-│   ├── parse_iqtree.R       # Parse .iqtree report files (lnL, AIC, BIC, df)
-│   ├── power_assessment.R   # Compute power; compare empirical vs simulated IC
+│   ├── alisim_runner.R      # Simulate via AliSim (standard + MAST)
+│   ├── mast_runner.R        # MAST workflow: windows, trees, ranking, fitting
+│   ├── alignment_io.R       # Read/write FASTA & PHYLIP, subset, concatenate
+│   ├── parse_iqtree.R       # Parse .iqtree reports (IC, tree weights, model params)
+│   ├── power_assessment.R   # Compute power (standard + MAST)
 │   ├── plot_kpower.R        # IC profile figure (ggplot2)
-│   └── utils.R              # IQ-TREE binary detection, temp dir management
+│   └── utils.R              # IQ-TREE binary detection, helpers
 ├── tests/
 │   └── testthat/
-│       ├── test-parse_iqtree.R
-│       ├── test-iqtree_runner.R
-│       └── test-power_assessment.R
 └── man/
 ```
 
@@ -159,11 +241,20 @@ kpower/
 - Parallelism over bootstrap replicates via `parallel::mclapply()`; the
   single `n_cores` parameter drives both R-level parallelism and IQ-TREE's
   `-T` thread count
-- Model family ("+R", "+H", "+C") is a string parameter, enabling extension
-  without structural changes to the core functions
+- Model family (`"+R"`, `"+H"`, `"*H"`, `"+T"`) is a string parameter;
+  `+R`/`+H`/`*H` share the standard pipeline while `+T` dispatches to the
+  dedicated MAST pathway
+- MAST candidate trees are derived from alignment windows (K_max equal
+  partitions); trees are ranked by weight from a K_max run, then
+  incrementally added for K = 1, 2, ..., K_max
+- MAST simulation decomposes into per-class AliSim calls (proportional
+  site counts) followed by concatenation, since AliSim does not natively
+  simulate from MAST models
+- Within-class rate heterogeneity for MAST is auto-determined from
+  per-window ModelFinder selections (modal +R or +G category count)
 - `find_iqtree()` searches PATH then a user option `kpower.iqtree_path`
 - `ggplot2` for the IC profile figure: simulated replicates as
-  `geom_line(alpha = 0.05)`, empirical data as `geom_line(linewidth = 1.2)`,
+  `geom_line(alpha = 0.15)`, empirical data as `geom_line(linewidth = 1.2)`,
   power estimate injected into the legend via a custom label
 
 ---
@@ -177,7 +268,14 @@ kpower/
   for all B x K simulation fits
 - `$K_best`: the K selected from empirical data
 - `$power`: proportion of simulations that recover K_best under the chosen IC
+- `$ic`: the IC used
+- `$mix_type`: mixture family used
 - `$plot`: a ggplot2 object (IC profile figure)
+
+For MAST runs, additionally:
+- `$rate_model`: auto-determined rate heterogeneity string (e.g. `"+R3"`)
+- `$tree_weights`: numeric vector of K_best tree weights
+- `$ranked_trees`: integer vector of tree indices in weight order
 
 ---
 
@@ -191,3 +289,5 @@ kpower/
 - Banos, Susko & Roger (2024) — consistency of mixture model estimation
 - Wong et al. (2024) — MixtureFinder (nearest precedent tool)
 - Minh et al. (2020) — IQ-TREE 2 and AliSim
+- Crotty et al. (2020) — GHOST heterotachy model
+- Woodhams et al. (2024) — MAST tree-mixture model

@@ -63,6 +63,11 @@ fit_model <- function(alignment, K, base_model = "GTR", mix_type = "+R",
     "--redo"
   )
 
+  # Save site-class probabilities for heterotachy models
+  if (grepl("H", mix_type, fixed = TRUE) && K > 1) {
+    args <- c(args, "-wspm")
+  }
+
   if (identical(fixed_tree, "NJ")) {
     args <- c(args, "-t", "BIONJ", "--tree-fix")
   } else if (!is.null(fixed_tree)) {
