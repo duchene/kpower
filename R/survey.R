@@ -61,6 +61,7 @@ kpower_survey <- function(alignment,
                           mix_types  = c("+R", "*R", "+H", "*H", "+T", "*T"),
                           ic         = "BIC",
                           fixed_tree = "NJ",
+                          fast_trees = FALSE,
                           B          = 100L,
                           seed       = 1L,
                           outdir     = tempdir(),
@@ -91,6 +92,7 @@ kpower_survey <- function(alignment,
         mix_type   = mt,
         ic         = ic,
         fixed_tree = fixed_tree,
+        fast_trees = fast_trees,
         n_sites    = n_sites,
         B          = B,
         seed       = seed,
@@ -151,7 +153,8 @@ kpower_survey <- function(alignment,
 #'
 #' @keywords internal
 survey_one_family <- function(alignment, K_values, base_model, mix_type,
-                              ic, fixed_tree, n_sites, B, seed, outdir,
+                              ic, fixed_tree, fast_trees = FALSE,
+                              n_sites, B, seed, outdir,
                               iqtree_bin, n_cores, threads, timeout) {
 
   is_mast  <- mix_type %in% c("+T", "*T")
@@ -167,6 +170,7 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
       mix_type   = mix_type,
       ic         = ic,
       fixed_tree = fixed_tree,
+      fast_trees = fast_trees,
       outdir     = outdir,
       iqtree_bin = iqtree_bin,
       threads    = threads,
@@ -262,7 +266,8 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
 # ---------------------------------------------------------------------------
 
 survey_phase1_mast <- function(alignment, K_values, base_model, mix_type,
-                               ic, fixed_tree = "NJ", outdir, iqtree_bin,
+                               ic, fixed_tree = "NJ", fast_trees = FALSE,
+                               outdir, iqtree_bin,
                                threads, timeout) {
   K_max    <- max(K_values)
   unlinked <- (mix_type == "*T")
@@ -271,7 +276,8 @@ survey_phase1_mast <- function(alignment, K_values, base_model, mix_type,
 
   windows <- split_alignment_windows(alignment, K_max, outdir)
   window_results <- estimate_window_trees(
-    windows, outdir, iqtree_bin, threads, timeout
+    windows, outdir, iqtree_bin, threads, timeout,
+    fast_trees = fast_trees
   )
   rate_model <- determine_rate_heterogeneity(window_results)
   message("  Rate heterogeneity: ", rate_model)

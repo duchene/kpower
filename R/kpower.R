@@ -56,6 +56,7 @@ kpower <- function(alignment,
                    mix_type   = "+R",
                    ic         = "BIC",
                    fixed_tree = "NJ",
+                   fast_trees = FALSE,
                    B          = 1000L,
                    seed       = 1L,
                    outdir     = tempdir(),
@@ -77,6 +78,7 @@ kpower <- function(alignment,
       mix_type   = mix_type,
       ic         = ic,
       fixed_tree = fixed_tree,
+      fast_trees = fast_trees,
       B          = B,
       seed       = seed,
       outdir     = outdir,
@@ -240,6 +242,7 @@ print.kpower_result <- function(x, ...) {
 #' @keywords internal
 kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
                         mix_type = "+T", ic = "BIC", fixed_tree = "NJ",
+                        fast_trees = FALSE,
                         B = 1000L, seed = 1L,
                         outdir = tempdir(), iqtree_bin = find_iqtree(),
                         n_cores = 1L, threads = "1", timeout = 3600L) {
@@ -255,7 +258,8 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
   # --- Step 2: Estimate tree per window (MFP + full search) -----------------
   message("Estimating trees for ", K_max, " windows via ModelFinder ...")
   window_results <- estimate_window_trees(
-    windows, outdir, iqtree_bin, threads, timeout
+    windows, outdir, iqtree_bin, threads, timeout,
+    fast_trees = fast_trees
   )
 
   # --- Step 3: Determine rate heterogeneity ---------------------------------
