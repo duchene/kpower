@@ -222,6 +222,8 @@ fit_mast_model <- function(alignment, tree_file, model_str, outdir, label,
 #' @param rate_model Rate heterogeneity string (e.g. `"+R3"`).
 #' @param tree_files Named list mapping K (character) to tree file paths,
 #'   as returned by `build_mast_tree_files()`.
+#' @param unlinked Logical; if TRUE, use MIX syntax for unlinked per-tree
+#'   substitution parameters (*T mode).
 #' @param outdir Output directory.
 #' @param label_prefix Prefix for per-K labels.
 #' @param iqtree_bin Path to IQ-TREE executable.
@@ -229,14 +231,15 @@ fit_mast_model <- function(alignment, tree_file, model_str, outdir, label,
 #' @param timeout Per-run timeout in seconds.
 #' @return Data frame with columns: K, lnL, df, AIC, AICc, BIC.
 fit_mast_all_K <- function(alignment, K_values, base_model, rate_model,
-                           tree_files, outdir, label_prefix = "",
+                           tree_files, unlinked = FALSE, outdir,
+                           label_prefix = "",
                            iqtree_bin, threads, timeout) {
   results <- lapply(K_values, function(K) {
     label <- paste0(label_prefix, "K", K)
 
     if (K == 1) {
       # Standard single-tree fit with BioNJ
-      model_str <- paste0(base_model, "+FO", rate_model)
+      model_str <- build_mast_model_str(base_model, rate_model, 1, unlinked)
       fit <- fit_model(
         alignment  = alignment,
         K          = 1,
@@ -251,7 +254,7 @@ fit_mast_all_K <- function(alignment, K_values, base_model, rate_model,
       )
     } else {
       # MAST fit with top-K trees
-      model_str <- paste0(base_model, "+FO", rate_model, "+T")
+      model_str <- build_mast_model_str(base_model, rate_model, K, unlinked)
       tf <- tree_files[[as.character(K)]]
       fit <- fit_mast_model(
         alignment  = alignment,

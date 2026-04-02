@@ -1,5 +1,8 @@
 # IC profile figure
 
+# Avoid R CMD check NOTEs for ggplot2 non-standard evaluation
+utils::globalVariables(c("K", ".data", "lab", "replicate"))
+
 #' Plot IC profiles from empirical data and parametric bootstrap simulations
 #'
 #' Produces a figure with K on the x-axis and the chosen information criterion
@@ -12,7 +15,7 @@
 #' @param sim_ic Long-format data frame with columns replicate, K, and the IC
 #'   column (output of `assess_power()$sim_ic`).
 #' @param K_best Integer; the K selected from empirical data.
-#' @param power Numeric in [0, 1]; proportion of simulations recovering K_best.
+#' @param power Numeric between 0 and 1; proportion of simulations recovering K_best.
 #' @param ic Character; which IC column to plot: `"AIC"`, `"AICc"`, or `"BIC"`
 #'   (default `"BIC"`).
 #' @return A ggplot2 object.

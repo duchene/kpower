@@ -16,7 +16,7 @@ License: MIT + file LICENSE
 SystemRequirements: IQ-TREE2 (>= 2.2.0) <http://www.iqtree.org>
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.2
+RoxygenNote: 7.3.3
 Imports:
     processx,
     ggplot2

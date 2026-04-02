@@ -70,3 +70,42 @@ make_prefix <- function(outdir, label) {
 pad_int <- function(i, width = 4) {
   formatC(i, width = width, flag = "0")
 }
+
+#' Build an IQ-TREE model string for a given K and mixture type
+#'
+#' For K = 1, returns the base model alone.  For K > 1, appends the mixture
+#' suffix.  The `*R` type is special: IQ-TREE implements it via
+#' `MIX{base+F,...}*R{K}` (each rate class gets its own substitution model).
+#'
+#' @param base_model Base substitution model (e.g. `"GTR"`).
+#' @param mix_type Mixture type: `"+R"`, `"*R"`, `"+H"`, or `"*H"`.
+#' @param K Integer number of mixture categories.
+#' @return Character string suitable for IQ-TREE `-m`.
+build_model_str <- function(base_model, mix_type, K) {
+  if (K == 1) return(base_model)
+  paste0(base_model, mix_type, K)
+}
+
+#' Build an IQ-TREE model string for MAST tree-mixture models
+#'
+#' For linked MAST (`+T`): `base+FO+rate+T`.
+#' For unlinked MAST (`*T`): `MIX{base+FO,...,base+FO}+rate+T`, giving each
+#' tree class its own substitution parameters.
+#'
+#' @param base_model Base substitution model.
+#' @param rate_model Rate heterogeneity string (e.g. `"+R3"`).
+#' @param K Number of tree classes.
+#' @param unlinked Logical; if TRUE, use `MIX{...}` syntax.
+#' @return Character string for IQ-TREE `-m`.
+build_mast_model_str <- function(base_model, rate_model, K, unlinked = FALSE) {
+  if (K <= 1) {
+    return(paste0(base_model, "+FO", rate_model))
+  }
+  if (unlinked) {
+    component <- paste0(base_model, "+FO")
+    mix_part  <- paste0("MIX{", paste(rep(component, K), collapse = ","), "}")
+    paste0(mix_part, rate_model, "+T")
+  } else {
+    paste0(base_model, "+FO", rate_model, "+T")
+  }
+}

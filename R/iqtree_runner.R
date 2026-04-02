@@ -51,7 +51,7 @@ fit_model <- function(alignment, K, base_model = "GTR", mix_type = "+R",
                       fixed_tree = "NJ", outdir = tempdir(), label = NULL,
                       iqtree_bin = find_iqtree(), threads = "1",
                       timeout = 3600) {
-  model_str <- if (K == 1) base_model else paste0(base_model, mix_type, K)
+  model_str <- build_model_str(base_model, mix_type, K)
   if (is.null(label)) label <- paste0("K", K)
   prefix <- make_prefix(outdir, label)
 

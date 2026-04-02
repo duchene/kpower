@@ -152,11 +152,25 @@ IC profile figure.
 
 | Family | K controls | `mix_type` | IQ-TREE syntax | Status |
 |---|---|---|---|---|
-| FreeRate | Rate categories | `"+R"` | `+R{K}` | Implemented |
+| FreeRate (linked) | Rate categories | `"+R"` | `+R{K}` | Implemented |
+| FreeRate (unlinked) | Rate categories + per-class substitution | `"*R"` | `*R{K}` | Implemented |
 | GHOST (linked) | Rate + branch-length classes | `"+H"` | `+H{K}` | Implemented |
 | GHOST (unlinked) | Per-class substitution models + branch lengths | `"*H"` | `*H{K}` | Implemented |
-| Tree mixtures (MAST) | Tree topologies | `"+T"` | `model+T` with `-te` | Implemented |
+| Tree mixtures (linked) | Tree topologies | `"+T"` | `model+FO+rate+T` with `-te` | Implemented |
+| Tree mixtures (unlinked) | Tree topologies + per-tree substitution | `"*T"` | `MIX{model+FO,...}+rate+T` with `-te` | Implemented |
 | Empirical profile mixtures | Frequency profiles | — | `+C10`, `+C20`, ... | Planned |
+
+### Linked vs unlinked
+
+- **Linked** (`+R`, `+H`, `+T`): all mixture classes share the same
+  substitution model parameters (e.g. GTR exchangeability rates and base
+  frequencies). Classes differ only in rates, branch lengths, or tree
+  topology.
+- **Unlinked** (`*R`, `*H`, `*T`): each mixture class gets its own
+  substitution model parameters. For `*R` and `*H`, IQ-TREE implements
+  this natively via the `*` prefix. For `*T`, the package constructs
+  `MIX{base+FO,...,base+FO}+rate+T` syntax, which gives each tree class
+  its own GTR parameters and frequencies.
 
 ---
 
@@ -219,14 +233,15 @@ kpower/
 ├── LICENSE
 ├── R/
 │   ├── kpower.R             # Main entry point: kpower(), kpower_mast()
+│   ├── survey.R             # Cross-model survey: kpower_survey()
 │   ├── iqtree_runner.R      # Fit one model via IQ-TREE; return parsed results
 │   ├── alisim_runner.R      # Simulate via AliSim (standard + MAST)
 │   ├── mast_runner.R        # MAST workflow: windows, trees, ranking, fitting
 │   ├── alignment_io.R       # Read/write FASTA & PHYLIP, subset, concatenate
 │   ├── parse_iqtree.R       # Parse .iqtree reports (IC, tree weights, model params)
-│   ├── power_assessment.R   # Compute power (standard + MAST)
+│   ├── power_assessment.R   # Compute power (standard + MAST + all-IC)
 │   ├── plot_kpower.R        # IC profile figure (ggplot2)
-│   └── utils.R              # IQ-TREE binary detection, helpers
+│   └── utils.R              # IQ-TREE binary detection, model string builders
 ├── tests/
 │   └── testthat/
 └── man/
@@ -238,9 +253,11 @@ kpower/
   captured separately, timeout support
 - Each IQ-TREE run gets its own subdirectory via `--prefix` to prevent
   output file collisions across parallel bootstrap replicates
-- Parallelism over bootstrap replicates via `parallel::mclapply()`; the
-  single `n_cores` parameter drives both R-level parallelism and IQ-TREE's
-  `-T` thread count
+- Parallelism is controlled by two independent parameters: `n_cores`
+  drives R-level parallel bootstrap refits via `parallel::mclapply()`,
+  while `threads` controls IQ-TREE's `-T` thread count per run. For
+  example, `n_cores = 4, threads = 2` runs 4 parallel refits each using
+  2 IQ-TREE threads (8 CPUs total)
 - Model family (`"+R"`, `"+H"`, `"*H"`, `"+T"`) is a string parameter;
   `+R`/`+H`/`*H` share the standard pipeline while `+T` dispatches to the
   dedicated MAST pathway
@@ -259,16 +276,72 @@ kpower/
 
 ---
 
+## Cross-Model Survey
+
+`kpower_survey()` runs a two-phase pipeline across all requested mixture
+families to determine which model family and K the alignment best supports.
+
+### Phase 1 — Empirical fitting
+
+For each mixture family in `mix_types`, fit K = K_min..K_max to the
+empirical alignment and record IC profiles.  Identify K_best per family.
+
+### Phase 2 — Parametric bootstrap
+
+For each family, simulate B alignments from the K_best model, refit the
+full K range on every replicate, and compute power.
+
+### Output
+
+The result is a ranked comparison table of all families at their respective
+K_best, annotated with power estimates under all three ICs.  This directly
+answers: *which model family and complexity does the alignment best support,
+and how reliably?*
+
+```r
+surv <- kpower_survey(aln, K_max = 5, mix_types = c("+R", "*R", "+H", "*H", "+T", "*T"))
+print(surv)
+#   mix_type  K  df      lnL      AIC     AICc      BIC  power
+#         +R  3  47  -12345.6  24785.2  24790.1  25012.3  87.0%
+#         *R  2  52  -12340.1  24784.2  24790.8  25044.5  72.0%
+#         +H  3  77  -12310.2  24774.4  24785.1  25089.7  65.0%
+#         ...
+```
+
+---
+
+## All-IC Power Reporting
+
+Both `kpower()` and `kpower_survey()` always compute K_best and power
+under all three information criteria (AIC, AICc, BIC), regardless of which
+one the user selects as primary.  The `$power_all` element in the result
+contains a named list:
+
+```r
+res$power_all$AIC   # list(K_best = 4, power = 0.82)
+res$power_all$AICc  # list(K_best = 4, power = 0.80)
+res$power_all$BIC   # list(K_best = 3, power = 0.91)
+```
+
+The primary IC (specified by `ic`) still determines `$K_best` and `$power`
+in the top-level result, and controls which K the simulation is generated
+from.
+
+---
+
 ## Primary Output
 
 `kpower()` returns a list (class `kpower_result`) containing:
 
-- `$empirical`: data frame of K, lnL, AIC, BIC, AICc for the empirical runs
-- `$sim_ic`: long-format data frame of replicate, K, lnL, AIC, BIC, AICc
-  for all B x K simulation fits
-- `$K_best`: the K selected from empirical data
-- `$power`: proportion of simulations that recover K_best under the chosen IC
-- `$ic`: the IC used
+- `$empirical`: data frame of K, lnL, df, AIC, AICc, BIC for the empirical
+  runs
+- `$sim_ic`: long-format data frame of replicate, K, lnL, df, AIC, AICc,
+  BIC for all B x K simulation fits
+- `$K_best`: the K selected from empirical data under the primary IC
+- `$power`: proportion of simulations that recover K_best under the primary IC
+- `$power_all`: named list with AIC, AICc, BIC entries, each containing
+  K_best and power under that criterion
+- `$ic`: the primary IC used
 - `$mix_type`: mixture family used
 - `$plot`: a ggplot2 object (IC profile figure)
 

@@ -13,8 +13,9 @@
 #' @param K_min Integer; minimum K (default 1).
 #' @param base_model Base substitution model string (e.g. `"GTR"`, `"LG"`).
 #'   Default `"GTR"`.
-#' @param mix_type Mixture family: `"+R"` (FreeRate, default), `"+H"` (GHOST
-#'   linked), `"*H"` (GHOST unlinked), or `"+T"` (MAST tree mixtures).
+#' @param mix_type Mixture family: `"+R"` (FreeRate, default), `"*R"` (FreeRate
+#'   unlinked), `"+H"` (GHOST linked), `"*H"` (GHOST unlinked), `"+T"` (MAST
+#'   tree mixtures linked), or `"*T"` (MAST tree mixtures unlinked).
 #' @param ic Information criterion used to select K_best and compute power:
 #'   `"AIC"`, `"AICc"`, or `"BIC"` (default `"BIC"`).
 #' @param fixed_tree Tree handling: `"NJ"` (per-K BioNJ, default), a path to
@@ -26,8 +27,11 @@
 #'   temporary directory.
 #' @param iqtree_bin Path to the IQ-TREE executable. Detected automatically
 #'   if not supplied.
-#' @param n_cores Number of cores controlling both R-level parallel bootstrap
-#'   refits and IQ-TREE's `-T` thread count (default 1).
+#' @param n_cores Number of parallel R workers for bootstrap refits via
+#'   `parallel::mclapply()` (default 1).
+#' @param threads Number of threads for each IQ-TREE run (`-T`). Default 1.
+#'   Independent of `n_cores`, so e.g. `n_cores = 4, threads = 2` runs 4
+#'   parallel refits each using 2 IQ-TREE threads (8 CPUs total).
 #' @param timeout Per-run timeout in seconds (default 3600).
 #'
 #' @return An object of class `kpower_result`, a list containing:
@@ -36,9 +40,12 @@
 #'       empirical alignment.}
 #'     \item{sim_ic}{Long-format data frame of replicate, K, and IC scores
 #'       from all bootstrap fits.}
-#'     \item{K_best}{Integer; K selected from empirical data.}
-#'     \item{power}{Numeric; proportion of simulations that recover K_best.}
-#'     \item{ic}{Character; the IC used.}
+#'     \item{K_best}{Integer; K selected from empirical data under `ic`.}
+#'     \item{power}{Numeric; proportion of simulations that recover K_best
+#'       under `ic`.}
+#'     \item{power_all}{Named list with elements AIC, AICc, BIC, each a list
+#'       of K_best and power under that criterion.}
+#'     \item{ic}{Character; the primary IC used.}
 #'     \item{plot}{A ggplot2 object (IC profile figure).}
 #'   }
 #' @export
@@ -54,31 +61,33 @@ kpower <- function(alignment,
                    outdir     = tempdir(),
                    iqtree_bin = find_iqtree(),
                    n_cores    = 1L,
+                   threads    = 1L,
                    timeout    = 3600L) {
 
   ic      <- match.arg(ic, c("AIC", "AICc", "BIC"))
-  threads <- as.character(n_cores)
+  threads <- as.character(threads)
 
-  # ---- MAST pathway --------------------------------------------------------
-  if (mix_type == "+T") {
+  # ---- MAST pathway (+T or *T) ----------------------------------------------
+  if (mix_type %in% c("+T", "*T")) {
     return(kpower_mast(
       alignment  = alignment,
       K_max      = K_max,
       K_min      = K_min,
       base_model = base_model,
+      mix_type   = mix_type,
       ic         = ic,
       B          = B,
       seed       = seed,
       outdir     = outdir,
       iqtree_bin = iqtree_bin,
       n_cores    = n_cores,
+      threads    = threads,
       timeout    = timeout
     ))
   }
 
-  # ---- +R / +H / *H pathway ------------------------------------------------
+  # ---- +R / *R / +H / *H pathway ------------------------------------------
   K_values <- seq.int(K_min, K_max)
-  threads  <- as.character(n_cores)   # n_cores drives IQ-TREE -T and mclapply
 
   emp_outdir <- file.path(outdir, "empirical")
   dir.create(emp_outdir, showWarnings = FALSE, recursive = TRUE)
@@ -104,8 +113,7 @@ kpower <- function(alignment,
   best_prefix <- make_prefix(emp_outdir, best_label)
   best_fit <- list(
     K            = K_best,
-    model_string = if (K_best == 1) base_model else
-                     paste0(base_model, mix_type, K_best),
+    model_string = build_model_str(base_model, mix_type, K_best),
     treefile     = paste0(best_prefix, ".treefile"),
     logfile      = paste0(best_prefix, ".log"),
     iqtree_file  = paste0(best_prefix, ".iqtree")
@@ -145,17 +153,24 @@ kpower <- function(alignment,
     timeout    = timeout
   )
 
+  # --- Step 5: Compute power under all ICs -----------------------------------
+  power_all <- compute_power_all_ic(
+    empirical_ic = empirical_ic,
+    sim_ic       = power_result$sim_ic,
+    K_values     = K_values
+  )
+
   message(sprintf(
     "Power: %.1f%% of simulations recover K_best = %d under %s",
-    power_result$power * 100, K_best, ic
+    power_all[[ic]]$power * 100, K_best, ic
   ))
 
-  # --- Step 5: Build figure -------------------------------------------------
+  # --- Step 6: Build figure -------------------------------------------------
   fig <- plot_kpower(
     empirical_ic = empirical_ic,
     sim_ic       = power_result$sim_ic,
     K_best       = K_best,
-    power        = power_result$power,
+    power        = power_all[[ic]]$power,
     ic           = ic
   )
 
@@ -164,7 +179,8 @@ kpower <- function(alignment,
       empirical = empirical_ic,
       sim_ic    = power_result$sim_ic,
       K_best    = K_best,
-      power     = power_result$power,
+      power     = power_all[[ic]]$power,
+      power_all = power_all,
       ic        = ic,
       mix_type  = mix_type,
       plot      = fig
@@ -174,6 +190,8 @@ kpower <- function(alignment,
 }
 
 #' Print method for kpower_result
+#' @param x A `kpower_result` object.
+#' @param ... Ignored.
 #' @export
 print.kpower_result <- function(x, ...) {
   cat("kpower result\n")
@@ -183,6 +201,14 @@ print.kpower_result <- function(x, ...) {
   cat(sprintf("  Power    : %.1f%%\n", x$power * 100))
   if (!is.null(x$rate_model))
     cat("  Rate het :", x$rate_model, "\n")
+  if (!is.null(x$power_all)) {
+    cat("  ---\n")
+    for (crit in c("AIC", "AICc", "BIC")) {
+      pa <- x$power_all[[crit]]
+      cat(sprintf("  %-4s : K_best = %d, Power = %.1f%%\n",
+                  crit, pa$K_best, pa$power * 100))
+    }
+  }
   invisible(x)
 }
 
@@ -207,16 +233,18 @@ print.kpower_result <- function(x, ...) {
 #' 10. Report power and IC profile figure.
 #'
 #' @inheritParams kpower
+#' @param mix_type Either `"+T"` (linked) or `"*T"` (unlinked per-tree
+#'   substitution parameters via `MIX{...}+T`).
 #' @return Object of class `kpower_result`.
 #' @keywords internal
 kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
-                        ic = "BIC", B = 1000L, seed = 1L,
+                        mix_type = "+T", ic = "BIC", B = 1000L, seed = 1L,
                         outdir = tempdir(), iqtree_bin = find_iqtree(),
-                        n_cores = 1L, timeout = 3600L) {
+                        n_cores = 1L, threads = "1", timeout = 3600L) {
 
   K_values <- seq.int(K_min, K_max)
-  threads  <- as.character(n_cores)
-  n_sites  <- nchar(read_alignment(alignment)[1])
+  unlinked <- (mix_type == "*T")
+  n_sites  <- alignment_length(alignment)
 
   # --- Step 1: Split alignment into K_max windows ---------------------------
   message("Splitting alignment into ", K_max, " windows ...")
@@ -237,7 +265,8 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
     window_results, file.path(outdir, "candidate_trees.newick")
   )
   all_trees      <- readLines(tree_file)
-  mast_model_str <- paste0(base_model, "+FO", rate_model, "+T")
+  mast_model_str <- build_mast_model_str(base_model, rate_model, K_max,
+                                         unlinked)
 
   message("Fitting MAST (", mast_model_str, ") with ", K_max, " trees ...")
   mast_max_dir <- file.path(outdir, "mast_empirical")
@@ -268,6 +297,7 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
     base_model   = base_model,
     rate_model   = rate_model,
     tree_files   = tree_files,
+    unlinked     = unlinked,
     outdir       = mast_max_dir,
     label_prefix = "empirical_",
     iqtree_bin   = iqtree_bin,
@@ -298,10 +328,12 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
       best_mast <- mast_max
     } else {
       message("Refitting MAST with K_best = ", K_best, " trees ...")
+      kbest_model_str <- build_mast_model_str(base_model, rate_model, K_best,
+                                              unlinked)
       best_mast <- fit_mast_model(
         alignment  = alignment,
         tree_file  = tree_files[[as.character(K_best)]],
-        model_str  = mast_model_str,
+        model_str  = kbest_model_str,
         outdir     = mast_max_dir,
         label      = paste0("mast_Kbest_", K_best),
         iqtree_bin = iqtree_bin,
@@ -352,6 +384,7 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
     base_model = base_model,
     rate_model = rate_model,
     tree_files = tree_files,
+    unlinked   = unlinked,
     outdir     = outdir,
     iqtree_bin = iqtree_bin,
     threads    = threads,
@@ -359,32 +392,39 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
     timeout    = timeout
   )
 
+  # --- Step 10: Power under all ICs and figure ------------------------------
+  power_all <- compute_power_all_ic(
+    empirical_ic = empirical_ic,
+    sim_ic       = power_result$sim_ic,
+    K_values     = K_values
+  )
+
   message(sprintf(
     "Power: %.1f%% of simulations recover K_best = %d under %s",
-    power_result$power * 100, K_best, ic
+    power_all[[ic]]$power * 100, K_best, ic
   ))
 
-  # --- Step 10: Build figure ------------------------------------------------
   fig <- plot_kpower(
     empirical_ic = empirical_ic,
     sim_ic       = power_result$sim_ic,
     K_best       = K_best,
-    power        = power_result$power,
+    power        = power_all[[ic]]$power,
     ic           = ic
   )
 
   structure(
     list(
-      empirical   = empirical_ic,
-      sim_ic      = power_result$sim_ic,
-      K_best      = K_best,
-      power       = power_result$power,
-      ic          = ic,
-      mix_type    = "+T",
-      rate_model  = rate_model,
+      empirical    = empirical_ic,
+      sim_ic       = power_result$sim_ic,
+      K_best       = K_best,
+      power        = power_all[[ic]]$power,
+      power_all    = power_all,
+      ic           = ic,
+      mix_type     = mix_type,
+      rate_model   = rate_model,
       tree_weights = if (use_mast_sim) best_mast$tree_weights else NULL,
       ranked_trees = ranked,
-      plot        = fig
+      plot         = fig
     ),
     class = "kpower_result"
   )

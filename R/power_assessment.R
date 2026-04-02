@@ -143,6 +143,8 @@ assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
 #' @param rate_model Rate heterogeneity string (e.g. `"+R3"`).
 #' @param tree_files Named list of tree file paths per K (from
 #'   `build_mast_tree_files()`).
+#' @param unlinked Logical; if TRUE, use MIX syntax for unlinked per-tree
+#'   substitution parameters.
 #' @param outdir Output directory.
 #' @param iqtree_bin Path to IQ-TREE.
 #' @param threads Number of threads.
@@ -151,6 +153,7 @@ assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
 #' @return List with `sim_ic` (data frame) and `power` (numeric).
 assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
                               base_model, rate_model, tree_files,
+                              unlinked = FALSE,
                               outdir, iqtree_bin, threads,
                               n_cores = 1, timeout = 3600) {
   sim_outdir <- file.path(outdir, "mast_sim_fits")
@@ -164,6 +167,7 @@ assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
       base_model   = base_model,
       rate_model   = rate_model,
       tree_files   = tree_files,
+      unlinked     = unlinked,
       outdir       = sim_outdir,
       label_prefix = label_prefix,
       iqtree_bin   = iqtree_bin,
@@ -201,4 +205,29 @@ assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
   power <- mean(best_per_rep == K_best)
 
   list(sim_ic = sim_ic, power = power)
+}
+
+#' Compute K_best and power under all three information criteria
+#'
+#' For each of AIC, AICc, and BIC: selects K_best from the empirical IC
+#' profile, then computes power as the proportion of bootstrap replicates
+#' that recover that K_best.
+#'
+#' @param empirical_ic Data frame with columns K, AIC, AICc, BIC from
+#'   empirical fits.
+#' @param sim_ic Long-format data frame with replicate, K, AIC, AICc, BIC.
+#' @param K_values Integer vector of K values.
+#' @return Named list with elements AIC, AICc, BIC, each containing
+#'   `K_best` (integer) and `power` (numeric between 0 and 1).
+compute_power_all_ic <- function(empirical_ic, sim_ic, K_values) {
+  ics <- c("AIC", "AICc", "BIC")
+  result <- lapply(stats::setNames(ics, ics), function(crit) {
+    K_best <- K_values[which.min(empirical_ic[[crit]])]
+    best_per_rep <- tapply(
+      sim_ic[[crit]], sim_ic$replicate,
+      function(x) K_values[which.min(x)]
+    )
+    list(K_best = K_best, power = mean(best_per_rep == K_best))
+  })
+  result
 }
