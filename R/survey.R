@@ -166,6 +166,7 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
       base_model = base_model,
       mix_type   = mix_type,
       ic         = ic,
+      fixed_tree = fixed_tree,
       outdir     = outdir,
       iqtree_bin = iqtree_bin,
       threads    = threads,
@@ -210,6 +211,7 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
       base_model = base_model,
       mix_type   = mix_type,
       ic         = ic,
+      fixed_tree = fixed_tree,
       n_sites    = n_sites,
       B          = B,
       seed       = seed,
@@ -260,7 +262,8 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
 # ---------------------------------------------------------------------------
 
 survey_phase1_mast <- function(alignment, K_values, base_model, mix_type,
-                               ic, outdir, iqtree_bin, threads, timeout) {
+                               ic, fixed_tree = "NJ", outdir, iqtree_bin,
+                               threads, timeout) {
   K_max    <- max(K_values)
   unlinked <- (mix_type == "*T")
 
@@ -305,6 +308,7 @@ survey_phase1_mast <- function(alignment, K_values, base_model, mix_type,
     rate_model   = rate_model,
     tree_files   = tree_files,
     unlinked     = unlinked,
+    fixed_tree   = fixed_tree,
     outdir       = mast_max_dir,
     label_prefix = "empirical_",
     iqtree_bin   = iqtree_bin,
@@ -319,7 +323,8 @@ survey_phase1_mast <- function(alignment, K_values, base_model, mix_type,
     ranked       = ranked,
     mast_max     = mast_max,
     mast_max_dir = mast_max_dir,
-    unlinked     = unlinked
+    unlinked     = unlinked,
+    fixed_tree   = fixed_tree
   )
 
   list(empirical_ic = empirical_ic, mast_ctx = mast_ctx)
@@ -376,7 +381,8 @@ survey_phase2_standard <- function(alignment, K_values, K_best,
 # ---------------------------------------------------------------------------
 
 survey_phase2_mast <- function(alignment, K_values, K_best, base_model,
-                               mix_type, ic, n_sites, B, seed, mast_ctx,
+                               mix_type, ic, fixed_tree = "NJ", n_sites,
+                               B, seed, mast_ctx,
                                outdir, iqtree_bin, n_cores, threads,
                                timeout) {
   unlinked     <- mast_ctx$unlinked
@@ -453,6 +459,7 @@ survey_phase2_mast <- function(alignment, K_values, K_best, base_model,
     rate_model = rate_model,
     tree_files = tree_files,
     unlinked   = unlinked,
+    fixed_tree = fixed_tree,
     outdir     = outdir,
     iqtree_bin = iqtree_bin,
     threads    = threads,

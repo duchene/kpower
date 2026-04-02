@@ -153,7 +153,7 @@ assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
 #' @return List with `sim_ic` (data frame) and `power` (numeric).
 assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
                               base_model, rate_model, tree_files,
-                              unlinked = FALSE,
+                              unlinked = FALSE, fixed_tree = "NJ",
                               outdir, iqtree_bin, threads,
                               n_cores = 1, timeout = 3600) {
   sim_outdir <- file.path(outdir, "mast_sim_fits")
@@ -168,6 +168,7 @@ assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
       rate_model   = rate_model,
       tree_files   = tree_files,
       unlinked     = unlinked,
+      fixed_tree   = fixed_tree,
       outdir       = sim_outdir,
       label_prefix = label_prefix,
       iqtree_bin   = iqtree_bin,

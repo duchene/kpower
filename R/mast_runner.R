@@ -224,6 +224,8 @@ fit_mast_model <- function(alignment, tree_file, model_str, outdir, label,
 #'   as returned by `build_mast_tree_files()`.
 #' @param unlinked Logical; if TRUE, use MIX syntax for unlinked per-tree
 #'   substitution parameters (*T mode).
+#' @param fixed_tree Tree handling for the K=1 single-tree fit: `"NJ"`,
+#'   a file path, or `NULL` (heuristic search). Default `"NJ"`.
 #' @param outdir Output directory.
 #' @param label_prefix Prefix for per-K labels.
 #' @param iqtree_bin Path to IQ-TREE executable.
@@ -231,21 +233,22 @@ fit_mast_model <- function(alignment, tree_file, model_str, outdir, label,
 #' @param timeout Per-run timeout in seconds.
 #' @return Data frame with columns: K, lnL, df, AIC, AICc, BIC.
 fit_mast_all_K <- function(alignment, K_values, base_model, rate_model,
-                           tree_files, unlinked = FALSE, outdir,
+                           tree_files, unlinked = FALSE,
+                           fixed_tree = "NJ", outdir,
                            label_prefix = "",
                            iqtree_bin, threads, timeout) {
   results <- lapply(K_values, function(K) {
     label <- paste0(label_prefix, "K", K)
 
     if (K == 1) {
-      # Standard single-tree fit with BioNJ
+      # Standard single-tree fit
       model_str <- build_mast_model_str(base_model, rate_model, 1, unlinked)
       fit <- fit_model(
         alignment  = alignment,
         K          = 1,
         base_model = model_str,
         mix_type   = "+R",       # dummy — won't be appended for K = 1
-        fixed_tree = "NJ",
+        fixed_tree = fixed_tree,
         outdir     = outdir,
         label      = label,
         iqtree_bin = iqtree_bin,
