@@ -99,7 +99,7 @@ concatenate_alignments <- function(aln_list) {
   result <- rep("", length(taxa))
   names(result) <- taxa
   for (aln in aln_list) {
-    result <- paste0(result, aln[taxa])
+    result[] <- paste0(result, aln[taxa])
   }
   result
 }
