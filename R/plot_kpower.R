@@ -84,7 +84,10 @@ plot_kpower <- function(empirical_ic, sim_ic, K_best, power, ic = "BIC") {
     "*R" = "#a50026", "*H" = "#2166ac", "*T" = "#1a7c1a"
   )
   pal <- family_palette[fams]
-  pal[is.na(pal)] <- scales::hue_pal()(sum(is.na(pal)))
+  n_missing <- sum(is.na(pal))
+  if (n_missing > 0)
+    pal[is.na(pal)] <- scales::hue_pal()(n_missing)
+  names(pal) <- fams
 
   p <- ggplot2::ggplot()
 
