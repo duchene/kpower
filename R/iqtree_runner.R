@@ -9,7 +9,7 @@
 #' @param timeout Maximum run time in seconds (default 3600).
 #' @return Invisibly, the `processx` result object (with $status, $stdout,
 #'   $stderr).
-run_iqtree <- function(iqtree_bin, args, timeout = 3600) {
+run_iqtree <- function(iqtree_bin, args, timeout = Inf) {
   result <- processx::run(
     command         = iqtree_bin,
     args            = args,
@@ -50,7 +50,7 @@ run_iqtree <- function(iqtree_bin, args, timeout = 3600) {
 fit_model <- function(alignment, K, base_model = "GTR", mix_type = "+R",
                       fixed_tree = "NJ", outdir = tempdir(), label = NULL,
                       iqtree_bin = find_iqtree(), threads = "1",
-                      timeout = 3600) {
+                      timeout = Inf) {
   model_str <- build_model_str(base_model, mix_type, K)
   if (is.null(label)) label <- paste0("K", K)
   prefix <- make_prefix(outdir, label)

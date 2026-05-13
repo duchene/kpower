@@ -68,7 +68,7 @@ kpower_survey <- function(alignment,
                           iqtree_bin = find_iqtree(),
                           n_cores    = 1L,
                           threads    = 1L,
-                          timeout    = 3600L) {
+                          timeout    = Inf) {
 
   ic       <- match.arg(ic, c("AIC", "AICc", "BIC"))
   K_values <- seq.int(K_min, K_max)

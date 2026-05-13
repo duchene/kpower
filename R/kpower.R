@@ -63,7 +63,7 @@ kpower <- function(alignment,
                    iqtree_bin = find_iqtree(),
                    n_cores    = 1L,
                    threads    = 1L,
-                   timeout    = 3600L) {
+                   timeout    = Inf) {
 
   ic      <- match.arg(ic, c("AIC", "AICc", "BIC"))
   threads <- as.character(threads)
@@ -245,7 +245,7 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
                         fast_trees = FALSE,
                         B = 1000L, seed = 1L,
                         outdir = tempdir(), iqtree_bin = find_iqtree(),
-                        n_cores = 1L, threads = "1", timeout = 3600L) {
+                        n_cores = 1L, threads = "1", timeout = Inf) {
 
   K_values <- seq.int(K_min, K_max)
   unlinked <- (mix_type == "*T")
