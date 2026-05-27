@@ -52,6 +52,21 @@ alignment_length <- function(alignment) {
 # Null-coalesce operator (base R does not have %||% before 4.3)
 `%||%` <- function(a, b) if (!is.null(a)) a else b
 
+# Format an elapsed time (seconds) as a compact human-readable string,
+# e.g. 4.2s, 3m 12s, 1h 05m. Used for survey timing output.
+format_elapsed <- function(seconds) {
+  if (is.na(seconds)) return("NA")
+  if (seconds < 60) return(sprintf("%.1fs", seconds))
+  if (seconds < 3600) {
+    m <- floor(seconds / 60)
+    s <- round(seconds - 60 * m)
+    return(sprintf("%dm %02ds", m, s))
+  }
+  h <- floor(seconds / 3600)
+  m <- round((seconds - 3600 * h) / 60)
+  sprintf("%dh %02dm", h, m)
+}
+
 #' Build a unique run prefix inside a directory
 #'
 #' @param outdir Base output directory.

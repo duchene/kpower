@@ -77,6 +77,9 @@ kpower_survey <- function(alignment,
 
   families <- list()
   plots    <- list()
+  timings  <- numeric(0)
+
+  survey_start <- proc.time()[["elapsed"]]
 
   for (mt in mix_types) {
     mt_dir <- file.path(outdir, survey_dir_label(mt))
@@ -84,6 +87,7 @@ kpower_survey <- function(alignment,
 
     message("\n===== ", mt, " =====")
 
+    mt_start <- proc.time()[["elapsed"]]
     family <- tryCatch(
       survey_one_family(
         alignment  = alignment,
@@ -108,6 +112,10 @@ kpower_survey <- function(alignment,
       }
     )
 
+    mt_elapsed     <- proc.time()[["elapsed"]] - mt_start
+    timings[[mt]]  <- mt_elapsed
+    message(sprintf("  Elapsed (%s): %s", mt, format_elapsed(mt_elapsed)))
+
     families[[mt]] <- family
 
     if (!is.null(family)) {
@@ -126,11 +134,14 @@ kpower_survey <- function(alignment,
   comparison <- build_survey_comparison(families, ic)
   best       <- identify_survey_best(comparison, ic)
 
+  total_elapsed <- proc.time()[["elapsed"]] - survey_start
+
   message("\n===== Survey complete =====")
   if (!is.na(best$mix_type)) {
     message("Best model: ", best$mix_type, " K=", best$K,
             " (", ic, " = ", round(best$ic_value, 2), ")")
   }
+  message("Total elapsed: ", format_elapsed(total_elapsed))
 
   structure(
     list(
@@ -138,7 +149,9 @@ kpower_survey <- function(alignment,
       comparison = comparison,
       best       = best,
       ic         = ic,
-      plots      = plots
+      plots      = plots,
+      timings    = timings,
+      elapsed    = total_elapsed
     ),
     class = "kpower_survey"
   )
@@ -572,5 +585,8 @@ print.kpower_survey <- function(x, ...) {
     stringsAsFactors = FALSE
   )
   print(disp, row.names = FALSE)
+  if (!is.null(x$elapsed)) {
+    cat("\n  Elapsed    :", format_elapsed(x$elapsed), "\n")
+  }
   invisible(x)
 }
