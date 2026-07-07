@@ -28,7 +28,7 @@
 #' @param iqtree_bin Path to the IQ-TREE executable. Detected automatically
 #'   if not supplied.
 #' @param n_cores Number of parallel R workers for bootstrap refits via
-#'   `parallel::mclapply()` (default 1).
+#'   `future.apply::future_lapply()` (default 1).
 #' @param threads Number of threads for each IQ-TREE run (`-T`). Default 1.
 #'   Independent of `n_cores`, so e.g. `n_cores = 4, threads = 2` runs 4
 #'   parallel refits each using 2 IQ-TREE threads (8 CPUs total).

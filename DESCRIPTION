@@ -19,9 +19,9 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Imports:
     processx,
-    ggplot2
+    ggplot2,
+    future,
+    future.apply
 Suggests:
-    parallel,
-    future.apply,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3

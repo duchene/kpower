@@ -99,16 +99,13 @@ assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
     tbl$replicate <- b
     tbl
   }
+  run_one_safe <- function(b) tryCatch(run_one(b), error = function(e) e)
 
-  if (n_cores > 1 && requireNamespace("parallel", quietly = TRUE)) {
-    sim_results <- parallel::mclapply(
-      seq_along(sim_files), run_one, mc.cores = n_cores
-    )
-  } else {
-    sim_results <- lapply(seq_along(sim_files), run_one)
-  }
+  sim_results <- run_parallel(
+    seq_along(sim_files), run_one_safe, n_cores = n_cores
+  )
 
-  # mclapply returns error objects for failed workers; detect and report them
+  # failed replicates come back as error conditions; detect and report them
   failed <- vapply(sim_results, inherits, logical(1), "error")
   if (any(failed)) {
     idx <- which(failed)
@@ -178,14 +175,11 @@ assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
     tbl$replicate <- b
     tbl
   }
+  run_one_safe <- function(b) tryCatch(run_one(b), error = function(e) e)
 
-  if (n_cores > 1 && requireNamespace("parallel", quietly = TRUE)) {
-    sim_results <- parallel::mclapply(
-      seq_along(sim_files), run_one, mc.cores = n_cores
-    )
-  } else {
-    sim_results <- lapply(seq_along(sim_files), run_one)
-  }
+  sim_results <- run_parallel(
+    seq_along(sim_files), run_one_safe, n_cores = n_cores
+  )
 
   failed <- vapply(sim_results, inherits, logical(1), "error")
   if (any(failed)) {

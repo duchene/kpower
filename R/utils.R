@@ -52,6 +52,35 @@ alignment_length <- function(alignment) {
 # Null-coalesce operator (base R does not have %||% before 4.3)
 `%||%` <- function(a, b) if (!is.null(a)) a else b
 
+#' Run a function over an index in parallel via future.apply
+#'
+#' Replaces `parallel::mclapply()`. Forking with `mclapply()` installs a
+#' SIGCHLD handler in the main process that conflicts with `processx::run()`
+#' (used for every IQ-TREE call, including from the main process itself),
+#' leaking zombie IQ-TREE/R processes and occasionally hanging `processx`
+#' calls that rely on SIGCHLD-based exit detection. `future::multisession`
+#' uses separate background R processes instead of forking, so it doesn't
+#' touch the main process's signal handlers.
+#'
+#' @param X Vector or list to iterate over.
+#' @param FUN Function of one argument, applied to each element of `X`.
+#'   Should not throw for expected failure modes; wrap in `tryCatch()`
+#'   upstream and return the condition object instead, if per-element
+#'   failures need to be detected downstream (as `assess_power()` and
+#'   `assess_mast_power()` do).
+#' @param n_cores Number of parallel workers. Runs sequentially via
+#'   `lapply()` when `n_cores <= 1`.
+#' @return A list of results, one per element of `X`.
+run_parallel <- function(X, FUN, n_cores = 1) {
+  if (n_cores > 1 && requireNamespace("future.apply", quietly = TRUE)) {
+    old_plan <- future::plan(future::multisession, workers = n_cores)
+    on.exit(future::plan(old_plan), add = TRUE)
+    future.apply::future_lapply(X, FUN)
+  } else {
+    lapply(X, FUN)
+  }
+}
+
 # Format an elapsed time (seconds) as a compact human-readable string,
 # e.g. 4.2s, 3m 12s, 1h 05m. Used for survey timing output.
 format_elapsed <- function(seconds) {

@@ -61,8 +61,9 @@ not found.
 
 For each of the B simulated alignments, refit all K values using IQ-TREE
 with a per-K BioNJ tree. Record AIC/BIC/AICc/lnL for each K on each
-replicate. Replicates are processed in parallel via `parallel::mclapply()`
-when `n_cores > 1`.
+replicate. Replicates are processed in parallel via
+`future.apply::future_lapply()` (a `future::multisession` plan) when
+`n_cores > 1`.
 
 #### Step 5 — Power assessment and output
 
@@ -254,8 +255,12 @@ kpower/
 - Each IQ-TREE run gets its own subdirectory via `--prefix` to prevent
   output file collisions across parallel bootstrap replicates
 - Parallelism is controlled by two independent parameters: `n_cores`
-  drives R-level parallel bootstrap refits via `parallel::mclapply()`,
-  while `threads` controls IQ-TREE's `-T` thread count per run. For
+  drives R-level parallel bootstrap refits via
+  `future.apply::future_lapply()` on a `future::multisession` plan
+  (background R processes, not forks — forking with `mclapply()` used to
+  install a SIGCHLD handler that conflicted with `processx::run()`'s own
+  child-reaping and leaked zombie processes), while `threads` controls
+  IQ-TREE's `-T` thread count per run. For
   example, `n_cores = 4, threads = 2` runs 4 parallel refits each using
   2 IQ-TREE threads (8 CPUs total)
 - Model family (`"+R"`, `"+H"`, `"*H"`, `"+T"`) is a string parameter;
