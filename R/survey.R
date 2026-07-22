@@ -116,7 +116,10 @@ kpower_survey <- function(alignment,
     timings[[mt]]  <- mt_elapsed
     message(sprintf("  Elapsed (%s): %s", mt, format_elapsed(mt_elapsed)))
 
-    families[[mt]] <- family
+    # single-bracket assignment keeps the key even when `family` is NULL
+    # (`families[[mt]] <- NULL` would silently drop it, so a wholly-failed
+    # family would vanish from the comparison table).
+    families[mt] <- list(family)
 
     if (!is.null(family)) {
       pa <- family$power_all[[ic]]
@@ -539,12 +542,16 @@ build_survey_comparison <- function(families, ic) {
       stringsAsFactors = FALSE
     )
   })
+  if (length(rows) == 0) return(NULL)
   do.call(rbind, rows)
 }
 
 #' Identify the overall best model from the comparison table
 #' @keywords internal
 identify_survey_best <- function(comparison, ic) {
+  if (is.null(comparison) || nrow(comparison) == 0) {
+    return(list(mix_type = NA, K = NA, ic_value = NA))
+  }
   successful <- comparison[!is.na(comparison[[ic]]), ]
   if (nrow(successful) == 0) {
     return(list(mix_type = NA, K = NA, ic_value = NA))

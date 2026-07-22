@@ -105,14 +105,21 @@ assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
     seq_along(sim_files), run_one_safe, n_cores = n_cores
   )
 
-  # failed replicates come back as error conditions; detect and report them
+  # failed replicates come back as error conditions; drop them (with a warning)
+  # rather than aborting the whole family, so a single bad refit does not discard
+  # every successful replicate. Only error if nothing survives.
   failed <- vapply(sim_results, inherits, logical(1), "error")
   if (any(failed)) {
     idx <- which(failed)
-    stop(
-      "Bootstrap refit(s) failed for replicate(s): ", paste(idx, collapse = ", "),
+    warning(
+      "Bootstrap refit(s) failed for ", sum(failed), "/", length(failed),
+      " replicate(s) (dropped): ", paste(idx, collapse = ", "),
       "\nFirst error: ", conditionMessage(sim_results[[idx[1]]])
     )
+  }
+  sim_results <- sim_results[!failed]
+  if (length(sim_results) == 0) {
+    stop("All bootstrap replicates failed; cannot compute power.")
   }
 
   sim_ic <- do.call(rbind, sim_results)
@@ -181,14 +188,20 @@ assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
     seq_along(sim_files), run_one_safe, n_cores = n_cores
   )
 
+  # Drop failed replicates (with a warning) rather than aborting the whole
+  # family; only error if nothing survives. See assess_power() for rationale.
   failed <- vapply(sim_results, inherits, logical(1), "error")
   if (any(failed)) {
     idx <- which(failed)
-    stop(
-      "MAST bootstrap refit(s) failed for replicate(s): ",
-      paste(idx, collapse = ", "),
+    warning(
+      "MAST bootstrap refit(s) failed for ", sum(failed), "/", length(failed),
+      " replicate(s) (dropped): ", paste(idx, collapse = ", "),
       "\nFirst error: ", conditionMessage(sim_results[[idx[1]]])
     )
+  }
+  sim_results <- sim_results[!failed]
+  if (length(sim_results) == 0) {
+    stop("All MAST bootstrap replicates failed; cannot compute power.")
   }
 
   sim_ic <- do.call(rbind, sim_results)
