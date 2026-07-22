@@ -32,7 +32,9 @@
 #' @param threads Number of threads for each IQ-TREE run (`-T`). Default 1.
 #'   Independent of `n_cores`, so e.g. `n_cores = 4, threads = 2` runs 4
 #'   parallel refits each using 2 IQ-TREE threads (8 CPUs total).
-#' @param timeout Per-run timeout in seconds (default 3600).
+#' @param timeout Per-run IQ-TREE timeout in seconds. Default `10 * 3600`
+#'   (10 hours): a safety net so a hung fit cannot stall a run indefinitely.
+#'   Set to `Inf` to disable, or lower it for shorter jobs.
 #'
 #' @return An object of class `kpower_result`, a list containing:
 #'   \describe{
@@ -63,7 +65,7 @@ kpower <- function(alignment,
                    iqtree_bin = find_iqtree(),
                    n_cores    = 1L,
                    threads    = 1L,
-                   timeout    = Inf) {
+                   timeout    = 10 * 3600) {
 
   ic      <- match.arg(ic, c("AIC", "AICc", "BIC"))
   threads <- as.character(threads)
@@ -245,7 +247,7 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
                         fast_trees = FALSE,
                         B = 1000L, seed = 1L,
                         outdir = tempdir(), iqtree_bin = find_iqtree(),
-                        n_cores = 1L, threads = "1", timeout = Inf) {
+                        n_cores = 1L, threads = "1", timeout = 10 * 3600) {
 
   K_values <- seq.int(K_min, K_max)
   unlinked <- (mix_type == "*T")

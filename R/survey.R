@@ -38,7 +38,9 @@
 #' @param iqtree_bin Path to IQ-TREE executable.
 #' @param n_cores Number of parallel R workers for bootstrap refits.
 #' @param threads Number of threads per IQ-TREE run.
-#' @param timeout Per-run timeout in seconds.
+#' @param timeout Per-run IQ-TREE timeout in seconds. Default `10 * 3600`
+#'   (10 hours): a safety net so a hung fit cannot stall a survey indefinitely.
+#'   Set to `Inf` to disable, or lower it for shorter jobs.
 #'
 #' @return An object of class `kpower_survey`, a list containing:
 #'   \describe{
@@ -68,7 +70,7 @@ kpower_survey <- function(alignment,
                           iqtree_bin = find_iqtree(),
                           n_cores    = 1L,
                           threads    = 1L,
-                          timeout    = Inf) {
+                          timeout    = 10 * 3600) {
 
   ic       <- match.arg(ic, c("AIC", "AICc", "BIC"))
   K_values <- seq.int(K_min, K_max)
