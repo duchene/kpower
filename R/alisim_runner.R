@@ -85,6 +85,12 @@ build_args_from_alisim_string <- function(alisim_string, sim_prefix, alignment,
   # Add the original alignment for gap mimicking (-s)
   tokens <- replace_or_append(tokens, "-s",                alignment)
 
+  # --site-rate defaults to MEAN, which hands each site its shrunken posterior
+  # mean rate from -s rather than drawing from the fitted rate distribution.
+  # That under-produces constant sites, so replicates are harder to fit than the
+  # empirical alignment and the bootstrap is no longer a valid null.
+  tokens <- replace_or_append(tokens, "--site-rate",       "SAMPLING")
+
   tokens
 }
 
