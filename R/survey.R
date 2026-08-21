@@ -192,7 +192,8 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
       outdir     = outdir,
       iqtree_bin = iqtree_bin,
       threads    = threads,
-      timeout    = timeout
+      timeout    = timeout,
+      seed       = seed
     )
     empirical_ic <- phase1$empirical_ic
     mast_ctx     <- phase1$mast_ctx
@@ -286,7 +287,7 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
 survey_phase1_mast <- function(alignment, K_values, base_model, mix_type,
                                ic, fixed_tree = "NJ", fast_trees = FALSE,
                                outdir, iqtree_bin,
-                               threads, timeout) {
+                               threads, timeout, seed = NULL) {
   K_max    <- max(K_values)
   unlinked <- (mix_type == "*T")
 
@@ -295,7 +296,7 @@ survey_phase1_mast <- function(alignment, K_values, base_model, mix_type,
   windows <- split_alignment_windows(alignment, K_max, outdir)
   window_results <- estimate_window_trees(
     windows, outdir, iqtree_bin, threads, timeout,
-    fast_trees = fast_trees
+    fast_trees = fast_trees, seed = seed
   )
   rate_model <- determine_rate_heterogeneity(window_results)
   message("  Rate heterogeneity: ", rate_model)

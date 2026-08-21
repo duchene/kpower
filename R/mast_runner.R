@@ -38,7 +38,7 @@ split_alignment_windows <- function(alignment, K, outdir) {
 #' @return List of per-window results, each with: window, treefile, iqtree_file,
 #'   best_model, tree (Newick string).
 estimate_window_trees <- function(windows, outdir, iqtree_bin, threads,
-                                  timeout, fast_trees = FALSE) {
+                                  timeout, fast_trees = FALSE, seed = NULL) {
   tree_dir <- file.path(outdir, "window_trees")
   dir.create(tree_dir, showWarnings = FALSE, recursive = TRUE)
 
@@ -56,6 +56,7 @@ estimate_window_trees <- function(windows, outdir, iqtree_bin, threads,
         "-T", threads,
         "--redo"
       )
+      if (!is.null(seed)) args <- c(args, "--seed", as.character(seed + i))
     } else {
       args <- c(
         "-s", windows[i],
@@ -64,6 +65,7 @@ estimate_window_trees <- function(windows, outdir, iqtree_bin, threads,
         "-T", threads,
         "--redo"
       )
+      if (!is.null(seed)) args <- c(args, "--seed", as.character(seed + i))
     }
     run_iqtree(iqtree_bin, args, timeout = timeout)
 

@@ -261,7 +261,7 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
   message("Estimating trees for ", K_max, " windows via ModelFinder ...")
   window_results <- estimate_window_trees(
     windows, outdir, iqtree_bin, threads, timeout,
-    fast_trees = fast_trees
+    fast_trees = fast_trees, seed = seed
   )
 
   # --- Step 3: Determine rate heterogeneity ---------------------------------
