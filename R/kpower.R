@@ -21,6 +21,15 @@
 #' @param fixed_tree Tree handling: `"NJ"` (per-K BioNJ, default), a path to
 #'   a fixed tree file, or `NULL` (full heuristic search). Ignored when
 #'   `mix_type = "+T"` (MAST derives trees from alignment windows).
+#' @param rate_model Within-class rate heterogeneity for `+T`/`*T`
+#'   (e.g. `"+R4"`). When `NULL` (default) it is derived from the per-window
+#'   model selections of whichever alignment is being analysed, so each
+#'   bootstrap replicate derives its own.
+#' @param tree_search Tree estimation for `+T`/`*T`: `"NJ"` (BioNJ, default)
+#'   or `"fast"` (`--fast` heuristic search). Applies to both the window trees
+#'   and the K = 1 tree, so the two cannot disagree, and is applied identically
+#'   to the empirical alignment and to every replicate. Overrides `fixed_tree`
+#'   on the MAST pathway.
 #' @param B Integer number of parametric bootstrap replicates (default 1000).
 #' @param seed Integer random seed passed to AliSim (default 1).
 #' @param outdir Directory for all IQ-TREE output files. Defaults to a
@@ -58,6 +67,8 @@ kpower <- function(alignment,
                    mix_type   = "+R",
                    ic         = "BIC",
                    fixed_tree = "NJ",
+                   rate_model = NULL,
+                   tree_search = "NJ",
                    fast_trees = FALSE,
                    B          = 1000L,
                    seed       = 1L,
@@ -69,6 +80,7 @@ kpower <- function(alignment,
 
   ic      <- match.arg(ic, c("AIC", "AICc", "BIC"))
   threads <- as.character(threads)
+  if (isTRUE(fast_trees)) tree_search <- "fast"   # legacy alias
 
   # ---- MAST pathway (+T or *T) ----------------------------------------------
   if (mix_type %in% c("+T", "*T")) {
@@ -80,7 +92,8 @@ kpower <- function(alignment,
       mix_type   = mix_type,
       ic         = ic,
       fixed_tree = fixed_tree,
-      fast_trees = fast_trees,
+      rate_model = rate_model,
+      tree_search = tree_search,
       B          = B,
       seed       = seed,
       outdir     = outdir,
@@ -244,7 +257,7 @@ print.kpower_result <- function(x, ...) {
 #' @keywords internal
 kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
                         mix_type = "+T", ic = "BIC", fixed_tree = "NJ",
-                        fast_trees = FALSE,
+                        rate_model = NULL, tree_search = "NJ",
                         B = 1000L, seed = 1L,
                         outdir = tempdir(), iqtree_bin = find_iqtree(),
                         n_cores = 1L, threads = "1", timeout = 10 * 3600) {
@@ -253,50 +266,38 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
   unlinked <- (mix_type == "*T")
   n_sites  <- alignment_length(alignment)
 
-  # --- Step 1: Split alignment into K_max windows ---------------------------
-  message("Splitting alignment into ", K_max, " windows ...")
-  windows <- split_alignment_windows(alignment, K_max, outdir)
+  # Window trees and the K = 1 tree must use the same estimator.
+  ts            <- resolve_tree_search(tree_search)
+  window_method <- ts$window_method
+  fixed_tree    <- ts$fixed_tree
 
-  # --- Step 2: Estimate tree per window (MFP + full search) -----------------
-  message("Estimating trees for ", K_max, " windows via ModelFinder ...")
-  window_results <- estimate_window_trees(
-    windows, outdir, iqtree_bin, threads, timeout,
-    fast_trees = fast_trees, seed = seed
+  # --- Steps 1-6: candidate trees, ranking, nested tree sets ---------------
+  # Same function is run on every bootstrap replicate, so no empirical tree
+  # can leak into a refit.
+  message("Deriving candidate trees (", window_method, ") from ", K_max,
+          " windows ...")
+  emp <- mast_candidates(
+    alignment     = alignment,
+    K_values      = K_values,
+    base_model    = base_model,
+    rate_model    = rate_model,
+    unlinked      = unlinked,
+    window_method = window_method,
+    outdir        = file.path(outdir, "empirical"),
+    iqtree_bin    = iqtree_bin,
+    threads       = threads,
+    timeout       = timeout,
+    seed          = seed
   )
+  rate_model   <- emp$rate_model
+  all_trees    <- emp$all_trees
+  ranked       <- emp$ranked
+  tree_files   <- emp$tree_files
+  mast_max     <- emp$mast_max
+  mast_max_dir <- emp$mast_dir
 
-  # --- Step 3: Determine rate heterogeneity ---------------------------------
-  rate_model <- determine_rate_heterogeneity(window_results)
-  message("Rate heterogeneity from windows: ", rate_model)
-
-  # --- Step 4: Collect candidate trees and run MAST with K_max --------------
-  tree_file <- collect_candidate_trees(
-    window_results, file.path(outdir, "candidate_trees.newick")
-  )
-  all_trees      <- readLines(tree_file)
-  mast_model_str <- build_mast_model_str(base_model, rate_model, K_max,
-                                         unlinked)
-
-  message("Fitting MAST (", mast_model_str, ") with ", K_max, " trees ...")
-  mast_max_dir <- file.path(outdir, "mast_empirical")
-  dir.create(mast_max_dir, showWarnings = FALSE, recursive = TRUE)
-
-  mast_max <- fit_mast_model(
-    alignment  = alignment,
-    tree_file  = tree_file,
-    model_str  = mast_model_str,
-    outdir     = mast_max_dir,
-    label      = paste0("mast_K", K_max),
-    iqtree_bin = iqtree_bin,
-    threads    = threads,
-    timeout    = timeout
-  )
-
-  # --- Step 5: Rank trees by weight -----------------------------------------
-  ranked <- rank_trees_by_weight(mast_max$tree_weights)
+  message("Rate heterogeneity: ", rate_model)
   message("Tree ranking by weight: ", paste(ranked, collapse = ", "))
-
-  # --- Step 6: Build tree files for each K and fit all K --------------------
-  tree_files <- build_mast_tree_files(all_trees, ranked, K_values, outdir)
 
   message("Fitting K = ", K_min, " to ", K_max, " on empirical alignment ...")
   empirical_ic <- fit_mast_all_K(
@@ -311,7 +312,8 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
     label_prefix = "empirical_",
     iqtree_bin   = iqtree_bin,
     threads      = threads,
-    timeout      = timeout
+    timeout      = timeout,
+    mast_max_fit = mast_max
   )
 
   # --- Step 7: Select K_best ------------------------------------------------
@@ -392,13 +394,14 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
     ic         = ic,
     base_model = base_model,
     rate_model = rate_model,
-    tree_files = tree_files,
     unlinked   = unlinked,
+    window_method = window_method,
     fixed_tree = fixed_tree,
     outdir     = outdir,
     iqtree_bin = iqtree_bin,
     threads    = threads,
     n_cores    = n_cores,
+    seed       = seed,
     timeout    = timeout
   )
 

@@ -25,20 +25,31 @@ split_alignment_windows <- function(alignment, K, outdir) {
   paths
 }
 
-#' Estimate a tree for each alignment window using ModelFinder
+#' Estimate a tree for each alignment window
 #'
-#' Runs `iqtree -m MFP` on each window to select the best model and infer a
-#' tree under that model via full heuristic search.
+#' `window_method` selects the estimator:
+#' - `"NJ"`: BioNJ topology with `-t BIONJ --tree-fix` under `base_model+R`,
+#'   letting IQ-TREE choose the FreeRate category count. Deterministic given
+#'   the alignment, and cheap enough to repeat on every bootstrap replicate.
+#' - `"fast"`: `--fast` heuristic search under `base_model+R`.
+#'
+#' Must match the estimator used for the K = 1 fit; see
+#' `resolve_tree_search()`, which couples them.
 #'
 #' @param windows Character vector of window alignment paths.
 #' @param outdir Output directory.
 #' @param iqtree_bin Path to IQ-TREE executable.
 #' @param threads Number of threads.
 #' @param timeout Per-window timeout in seconds.
+#' @param window_method Either `"NJ"` or `"fast"`.
+#' @param base_model Base substitution model used by the NJ and fast methods.
+#' @param seed Optional base seed; window i uses `seed + i`.
 #' @return List of per-window results, each with: window, treefile, iqtree_file,
 #'   best_model, tree (Newick string).
 estimate_window_trees <- function(windows, outdir, iqtree_bin, threads,
-                                  timeout, fast_trees = FALSE, seed = NULL) {
+                                  timeout, window_method = "NJ",
+                                  base_model = "GTR", seed = NULL) {
+  window_method <- match.arg(window_method, c("NJ", "fast"))
   tree_dir <- file.path(outdir, "window_trees")
   dir.create(tree_dir, showWarnings = FALSE, recursive = TRUE)
 
@@ -46,38 +57,25 @@ estimate_window_trees <- function(windows, outdir, iqtree_bin, threads,
     label  <- paste0("window_", pad_int(i))
     prefix <- make_prefix(tree_dir, label)
 
-    if (fast_trees) {
-      # GTR+R with --fast: quick candidate trees for power assessment
-      args <- c(
-        "-s", windows[i],
-        "-m", "GTR+R",
-        "--fast",
-        "--prefix", prefix,
-        "-T", threads,
-        "--redo"
-      )
-      if (!is.null(seed)) args <- c(args, "--seed", as.character(seed + i))
-    } else {
-      args <- c(
-        "-s", windows[i],
-        "-m", "MFP",
-        "--prefix", prefix,
-        "-T", threads,
-        "--redo"
-      )
-      if (!is.null(seed)) args <- c(args, "--seed", as.character(seed + i))
-    }
+    args <- switch(window_method,
+      NJ = c("-s", windows[i], "-m", paste0(base_model, "+R"),
+             "-t", "BIONJ", "--tree-fix",
+             "--prefix", prefix, "-T", threads, "--redo"),
+      fast = c("-s", windows[i], "-m", paste0(base_model, "+R"), "--fast",
+               "--prefix", prefix, "-T", threads, "--redo")
+    )
+    if (!is.null(seed)) args <- c(args, "--seed", as.character(seed + i))
+
     run_iqtree(iqtree_bin, args, timeout = timeout)
 
     iqtree_file <- paste0(prefix, ".iqtree")
     treefile    <- paste0(prefix, ".treefile")
-    best_model  <- parse_best_model(iqtree_file)
 
     list(
       window      = i,
       treefile    = treefile,
       iqtree_file = iqtree_file,
-      best_model  = best_model,
+      best_model  = parse_best_model(iqtree_file),
       tree        = readLines(treefile)[1]
     )
   })
@@ -89,7 +87,10 @@ estimate_window_trees <- function(windows, outdir, iqtree_bin, threads,
 #' @return Best-fit model string, or NA if not found.
 parse_best_model <- function(iqtree_file) {
   lines <- readLines(iqtree_file)
+  # ModelFinder writes "Best-fit model according to ...". Fixed-model runs
+  # (e.g. GTR+R with -t BIONJ) do not, but still report the model they used.
   hit <- grep("^Best-fit model according to", lines, value = TRUE)
+  if (length(hit) == 0) hit <- grep("^Model of substitution:", lines, value = TRUE)
   if (length(hit) == 0) return(NA_character_)
   sub(".*:\\s+", "", hit[1])
 }
@@ -245,16 +246,25 @@ fit_mast_model <- function(alignment, tree_file, model_str, outdir, label,
 #' @param iqtree_bin Path to IQ-TREE executable.
 #' @param threads Number of threads.
 #' @param timeout Per-run timeout in seconds.
+#' @param mast_max_fit Optional fit for `K = max(K_values)` from
+#'   `mast_candidates()`, reused instead of refitting the same model.
 #' @return Data frame with columns: K, lnL, df, AIC, AICc, BIC.
 fit_mast_all_K <- function(alignment, K_values, base_model, rate_model,
                            tree_files, unlinked = FALSE,
                            fixed_tree = "NJ", outdir,
                            label_prefix = "",
-                           iqtree_bin, threads, timeout) {
+                           iqtree_bin, threads, timeout,
+                           mast_max_fit = NULL) {
+  K_max <- max(K_values)
   results <- lapply(K_values, function(K) {
     label <- paste0(label_prefix, "K", K)
 
-    if (K == 1) {
+    if (!is.null(mast_max_fit) && K == K_max && K > 1) {
+      # mast_candidates() already fitted all K_max trees to derive the
+      # weights; the ranked tree set is the same set in a different order,
+      # so the fit is identical.
+      fit <- mast_max_fit
+    } else if (K == 1) {
       # Standard single-tree fit
       model_str <- build_mast_model_str(base_model, rate_model, 1, unlinked)
       fit <- fit_model(
@@ -296,4 +306,95 @@ fit_mast_all_K <- function(alignment, K_values, base_model, rate_model,
     )
   })
   do.call(rbind, results)
+}
+
+# ---------------------------------------------------------------------------
+# Candidate-tree derivation (run identically on empirical and replicate data)
+# ---------------------------------------------------------------------------
+
+#' Derive MAST candidate trees and tree sets from a single alignment
+#'
+#' Runs the full candidate-tree pipeline on whatever alignment it is given:
+#' window split, per-window tree estimation, MAST fit at K_max to obtain tree
+#' weights, ranking, and nested top-K tree sets.
+#'
+#' Bootstrap replicates must call this on their own alignment. Passing the
+#' empirical tree sets to a replicate hands it the topologies it was simulated
+#' from, which pins the IC minimum at K_best and forces power to 100%.
+#'
+#' @param alignment Path to the alignment.
+#' @param K_values Integer vector of K values.
+#' @param base_model Base substitution model string.
+#' @param rate_model Within-class rate heterogeneity (e.g. `"+R4"`). When
+#'   `NULL`, it is derived from the per-window model selections.
+#' @param unlinked Logical; `TRUE` for `*T` (MIX syntax).
+#' @param window_method Passed to `estimate_window_trees()`.
+#' @param outdir Output directory for this alignment's files.
+#' @param iqtree_bin Path to IQ-TREE executable.
+#' @param threads Number of threads.
+#' @param timeout Per-run timeout in seconds.
+#' @param seed Optional base seed for window tree searches.
+#' @return List with: rate_model, all_trees, ranked, tree_files, mast_max,
+#'   mast_dir.
+mast_candidates <- function(alignment, K_values, base_model,
+                            rate_model = NULL, unlinked = FALSE,
+                            window_method = "NJ", outdir,
+                            iqtree_bin, threads, timeout, seed = NULL) {
+  K_max <- max(K_values)
+
+  windows <- split_alignment_windows(alignment, K_max, outdir)
+  window_results <- estimate_window_trees(
+    windows, outdir, iqtree_bin, threads, timeout,
+    window_method = window_method, base_model = base_model, seed = seed
+  )
+
+  if (is.null(rate_model)) rate_model <- determine_rate_heterogeneity(window_results)
+
+  tree_file <- collect_candidate_trees(
+    window_results, file.path(outdir, "candidate_trees.newick")
+  )
+  all_trees <- readLines(tree_file)
+
+  mast_dir <- file.path(outdir, "mast_fits")
+  dir.create(mast_dir, showWarnings = FALSE, recursive = TRUE)
+
+  mast_max <- fit_mast_model(
+    alignment  = alignment,
+    tree_file  = tree_file,
+    model_str  = build_mast_model_str(base_model, rate_model, K_max, unlinked),
+    outdir     = mast_dir,
+    label      = paste0("mast_K", K_max),
+    iqtree_bin = iqtree_bin,
+    threads    = threads,
+    timeout    = timeout
+  )
+
+  ranked <- rank_trees_by_weight(mast_max$tree_weights)
+
+  list(
+    rate_model = rate_model,
+    all_trees  = all_trees,
+    ranked     = ranked,
+    tree_files = build_mast_tree_files(all_trees, ranked, K_values, outdir),
+    mast_max   = mast_max,
+    mast_dir   = mast_dir
+  )
+}
+
+
+#' Resolve the `+T` tree-search setting into its two component estimators
+#'
+#' The window trees and the K = 1 tree must be estimated the same way, or the
+#' K = 1 versus K >= 2 comparison is biased by tree quality rather than by the
+#' number of tree classes. This couples them so they cannot be set apart.
+#'
+#' @param tree_search Either `"NJ"` (BioNJ throughout) or `"fast"`
+#'   (`--fast` heuristic search throughout).
+#' @return List with `window_method` and `fixed_tree`.
+resolve_tree_search <- function(tree_search = "NJ") {
+  tree_search <- match.arg(tree_search, c("NJ", "fast"))
+  list(
+    window_method = tree_search,
+    fixed_tree    = if (tree_search == "NJ") "NJ" else NULL
+  )
 }

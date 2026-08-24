@@ -136,50 +136,76 @@ assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
 
 #' Run the parametric bootstrap power assessment for MAST models
 #'
-#' For each simulated alignment, fits K = 1 (single-tree BioNJ) and
-#' K = 2..K_max (MAST with top-K ranked trees).
+#' Each replicate derives its own candidate trees from its own alignment via
+#' `mast_candidates()`, then fits K = 1 (single-tree BioNJ) and K >= 2 (MAST
+#' with its own top-K ranked trees).
+#'
+#' The empirical tree sets are deliberately not passed in. Reusing them would
+#' hand each replicate the exact topologies it was simulated from, pinning the
+#' IC minimum at K_best and forcing power to 100%.
 #'
 #' @param sim_files Character vector of paths to simulated alignments.
 #' @param K_values Integer vector of K values.
 #' @param K_best Integer; K selected from empirical data.
 #' @param ic Character; IC for power calculation.
 #' @param base_model Base substitution model string.
-#' @param rate_model Rate heterogeneity string (e.g. `"+R3"`).
-#' @param tree_files Named list of tree file paths per K (from
-#'   `build_mast_tree_files()`).
+#' @param rate_model Rate heterogeneity string (e.g. `"+R3"`), or `NULL` to
+#'   re-derive it per replicate from that replicate's windows.
 #' @param unlinked Logical; if TRUE, use MIX syntax for unlinked per-tree
 #'   substitution parameters.
+#' @param window_method Window tree estimator: `"NJ"`, `"fast"`, or `"MFP"`.
+#' @param fixed_tree Tree handling for the K = 1 fit.
 #' @param outdir Output directory.
 #' @param iqtree_bin Path to IQ-TREE.
 #' @param threads Number of threads.
 #' @param n_cores Number of cores for parallel replicates.
+#' @param seed Optional base seed for per-replicate window tree searches.
 #' @param timeout Per-run timeout in seconds.
 #' @return List with `sim_ic` (data frame) and `power` (numeric).
 assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
-                              base_model, rate_model, tree_files,
-                              unlinked = FALSE, fixed_tree = "NJ",
+                              base_model, rate_model = NULL,
+                              unlinked = FALSE, window_method = "NJ",
+                              fixed_tree = "NJ",
                               outdir, iqtree_bin, threads,
-                              n_cores = 1, timeout = Inf) {
+                              n_cores = 1, seed = NULL, timeout = Inf) {
   sim_outdir <- file.path(outdir, "mast_sim_fits")
   dir.create(sim_outdir, showWarnings = FALSE, recursive = TRUE)
 
   run_one <- function(b) {
-    label_prefix <- paste0("sim", pad_int(b), "_")
+    rep_dir <- file.path(sim_outdir, paste0("sim", pad_int(b)))
+    dir.create(rep_dir, showWarnings = FALSE, recursive = TRUE)
+
+    cand <- mast_candidates(
+      alignment     = sim_files[b],
+      K_values      = K_values,
+      base_model    = base_model,
+      rate_model    = rate_model,
+      unlinked      = unlinked,
+      window_method = window_method,
+      outdir        = rep_dir,
+      iqtree_bin    = iqtree_bin,
+      threads       = threads,
+      timeout       = timeout,
+      seed          = if (is.null(seed)) NULL else seed + 1000L * b
+    )
+
     tbl <- fit_mast_all_K(
       alignment    = sim_files[b],
       K_values     = K_values,
       base_model   = base_model,
-      rate_model   = rate_model,
-      tree_files   = tree_files,
+      rate_model   = cand$rate_model,
+      tree_files   = cand$tree_files,
       unlinked     = unlinked,
       fixed_tree   = fixed_tree,
-      outdir       = sim_outdir,
-      label_prefix = label_prefix,
+      outdir       = rep_dir,
+      label_prefix = "fit_",
       iqtree_bin   = iqtree_bin,
       threads      = threads,
-      timeout      = timeout
+      timeout      = timeout,
+      mast_max_fit = cand$mast_max
     )
-    tbl$replicate <- b
+    tbl$replicate  <- b
+    tbl$rate_model <- cand$rate_model
     tbl
   }
   run_one_safe <- function(b) tryCatch(run_one(b), error = function(e) e)

@@ -63,6 +63,8 @@ kpower_survey <- function(alignment,
                           mix_types  = c("+R", "*R", "+H", "*H", "+T", "*T"),
                           ic         = "BIC",
                           fixed_tree = "NJ",
+                          rate_model = NULL,
+                          tree_search = "NJ",
                           fast_trees = FALSE,
                           B          = 100L,
                           seed       = 1L,
@@ -73,6 +75,7 @@ kpower_survey <- function(alignment,
                           timeout    = 10 * 3600) {
 
   ic       <- match.arg(ic, c("AIC", "AICc", "BIC"))
+  if (isTRUE(fast_trees)) tree_search <- "fast"   # legacy alias
   K_values <- seq.int(K_min, K_max)
   threads  <- as.character(threads)
   n_sites  <- alignment_length(alignment)
@@ -98,7 +101,8 @@ kpower_survey <- function(alignment,
         mix_type   = mt,
         ic         = ic,
         fixed_tree = fixed_tree,
-        fast_trees = fast_trees,
+        rate_model = rate_model,
+        tree_search = tree_search,
         n_sites    = n_sites,
         B          = B,
         seed       = seed,
@@ -171,12 +175,21 @@ kpower_survey <- function(alignment,
 #'
 #' @keywords internal
 survey_one_family <- function(alignment, K_values, base_model, mix_type,
-                              ic, fixed_tree, fast_trees = FALSE,
+                              ic, fixed_tree, rate_model = NULL,
+                              tree_search = "NJ",
                               n_sites, B, seed, outdir,
                               iqtree_bin, n_cores, threads, timeout) {
 
   is_mast  <- mix_type %in% c("+T", "*T")
   unlinked <- mix_type %in% c("*R", "*T", "*H")
+
+  # On the MAST pathway the tree estimator is set by tree_search, which keeps
+  # the window trees and the K = 1 tree in step.
+  if (is_mast) {
+    ts            <- resolve_tree_search(tree_search)
+    window_method <- ts$window_method
+    fixed_tree    <- ts$fixed_tree
+  }
 
   # ========== Phase 1: Empirical IC profiles ================================
 
@@ -188,7 +201,8 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
       mix_type   = mix_type,
       ic         = ic,
       fixed_tree = fixed_tree,
-      fast_trees = fast_trees,
+      rate_model = rate_model,
+      window_method = window_method,
       outdir     = outdir,
       iqtree_bin = iqtree_bin,
       threads    = threads,
@@ -285,71 +299,56 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
 # ---------------------------------------------------------------------------
 
 survey_phase1_mast <- function(alignment, K_values, base_model, mix_type,
-                               ic, fixed_tree = "NJ", fast_trees = FALSE,
+                               ic, fixed_tree = "NJ", rate_model = NULL,
+                               window_method = "NJ",
                                outdir, iqtree_bin,
                                threads, timeout, seed = NULL) {
-  K_max    <- max(K_values)
   unlinked <- (mix_type == "*T")
 
-  message("Phase 1: MAST windows and empirical fits ...")
+  message("Phase 1: MAST windows and empirical fits (", window_method, ") ...")
 
-  windows <- split_alignment_windows(alignment, K_max, outdir)
-  window_results <- estimate_window_trees(
-    windows, outdir, iqtree_bin, threads, timeout,
-    fast_trees = fast_trees, seed = seed
+  cand <- mast_candidates(
+    alignment     = alignment,
+    K_values      = K_values,
+    base_model    = base_model,
+    rate_model    = rate_model,
+    unlinked      = unlinked,
+    window_method = window_method,
+    outdir        = outdir,
+    iqtree_bin    = iqtree_bin,
+    threads       = threads,
+    timeout       = timeout,
+    seed          = seed
   )
-  rate_model <- determine_rate_heterogeneity(window_results)
-  message("  Rate heterogeneity: ", rate_model)
-
-  tree_file <- collect_candidate_trees(
-    window_results, file.path(outdir, "candidate_trees.newick")
-  )
-  all_trees <- readLines(tree_file)
-
-  # Fit MAST with K_max trees to get tree weights and ranking
-  mast_max_dir <- file.path(outdir, "mast_empirical")
-  dir.create(mast_max_dir, showWarnings = FALSE, recursive = TRUE)
-
-  mast_model_str <- build_mast_model_str(base_model, rate_model, K_max,
-                                         unlinked)
-  mast_max <- fit_mast_model(
-    alignment  = alignment,
-    tree_file  = tree_file,
-    model_str  = mast_model_str,
-    outdir     = mast_max_dir,
-    label      = paste0("mast_K", K_max),
-    iqtree_bin = iqtree_bin,
-    threads    = threads,
-    timeout    = timeout
-  )
-
-  ranked     <- rank_trees_by_weight(mast_max$tree_weights)
-  tree_files <- build_mast_tree_files(all_trees, ranked, K_values, outdir)
+  message("  Rate heterogeneity: ", cand$rate_model)
 
   empirical_ic <- fit_mast_all_K(
     alignment    = alignment,
     K_values     = K_values,
     base_model   = base_model,
-    rate_model   = rate_model,
-    tree_files   = tree_files,
+    rate_model   = cand$rate_model,
+    tree_files   = cand$tree_files,
     unlinked     = unlinked,
     fixed_tree   = fixed_tree,
-    outdir       = mast_max_dir,
+    outdir       = cand$mast_dir,
     label_prefix = "empirical_",
     iqtree_bin   = iqtree_bin,
     threads      = threads,
-    timeout      = timeout
+    timeout      = timeout,
+    mast_max_fit = cand$mast_max
   )
 
   mast_ctx <- list(
-    rate_model   = rate_model,
-    tree_files   = tree_files,
-    all_trees    = all_trees,
-    ranked       = ranked,
-    mast_max     = mast_max,
-    mast_max_dir = mast_max_dir,
-    unlinked     = unlinked,
-    fixed_tree   = fixed_tree
+    rate_model    = cand$rate_model,
+    rate_model_in = rate_model,   # NULL means re-derive per replicate
+    window_method = window_method,
+    tree_files    = cand$tree_files,
+    all_trees     = cand$all_trees,
+    ranked        = cand$ranked,
+    mast_max      = cand$mast_max,
+    mast_max_dir  = cand$mast_dir,
+    unlinked      = unlinked,
+    fixed_tree    = fixed_tree
   )
 
   list(empirical_ic = empirical_ic, mast_ctx = mast_ctx)
@@ -481,14 +480,15 @@ survey_phase2_mast <- function(alignment, K_values, K_best, base_model,
     K_best     = K_best,
     ic         = "BIC",     # placeholder — power_all computes all three
     base_model = base_model,
-    rate_model = rate_model,
-    tree_files = tree_files,
+    rate_model = mast_ctx$rate_model_in,
     unlinked   = unlinked,
+    window_method = mast_ctx$window_method,
     fixed_tree = fixed_tree,
     outdir     = outdir,
     iqtree_bin = iqtree_bin,
     threads    = threads,
     n_cores    = n_cores,
+    seed       = seed,
     timeout    = timeout
   )
 }
