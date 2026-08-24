@@ -367,7 +367,8 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
       outdir      = outdir,
       iqtree_bin  = iqtree_bin,
       threads     = threads,
-      timeout     = timeout
+      timeout     = timeout,
+      alignment   = alignment
     )
   } else {
     # K_best = 1: standard single-tree AliSim

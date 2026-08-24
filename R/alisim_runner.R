@@ -157,6 +157,43 @@ replace_or_append <- function(tokens, flag, value, flag_only = FALSE) {
 # MAST simulation: per-class AliSim + concatenation
 # ---------------------------------------------------------------------------
 
+#' Copy an alignment's gap pattern onto a simulated alignment
+#'
+#' AliSim's `-s` gap mimicking is used on the +R/+H path, but the MAST path
+#' simulates each class at its own length, so a single `-s` template cannot line
+#' up. Applying the mask positionally after concatenation reproduces the source
+#' gaps exactly instead, and each window inherits its real counterpart's gap
+#' profile.
+#'
+#' @param sim Named character vector: the simulated alignment.
+#' @param gap_mask Logical matrix (taxa x sites) from `build_gap_mask()`.
+#' @return `sim` with gaps written in.
+#' @keywords internal
+apply_gap_mask <- function(sim, gap_mask) {
+  shared <- intersect(names(sim), rownames(gap_mask))
+  if (length(shared) == 0L) return(sim)
+  for (nm in shared) {
+    ch <- strsplit(sim[[nm]], "")[[1]]
+    g  <- gap_mask[nm, ]
+    if (length(g) != length(ch)) next
+    ch[g] <- "-"
+    sim[[nm]] <- paste(ch, collapse = "")
+  }
+  sim
+}
+
+#' Build a taxa x sites logical gap mask from an alignment
+#'
+#' @param alignment Path to the source alignment.
+#' @return Logical matrix with taxon names as rownames.
+#' @keywords internal
+build_gap_mask <- function(alignment) {
+  a <- read_alignment(alignment)
+  m <- do.call(rbind, strsplit(unname(a), ""))
+  rownames(m) <- names(a)
+  matrix(m %in% c("-", "?", "N", "n"), nrow = nrow(m), dimnames = dimnames(m))
+}
+
 #' Simulate replicate alignments under a fitted MAST model
 #'
 #' For each tree class in the MAST model, runs AliSim to generate B partial
@@ -178,7 +215,7 @@ replace_or_append <- function(tokens, flag, value, flag_only = FALSE) {
 #'   alignment files.
 simulate_mast_alignments <- function(mast_result, base_model, n_sites, B,
                                      seed, outdir, iqtree_bin, threads,
-                                     timeout = 7200) {
+                                     timeout = 7200, alignment = NULL) {
   sim_dir <- file.path(outdir, "mast_simulations")
   dir.create(sim_dir, showWarnings = FALSE, recursive = TRUE)
 
@@ -234,6 +271,8 @@ simulate_mast_alignments <- function(mast_result, base_model, n_sites, B,
   combined_dir <- file.path(sim_dir, "combined")
   dir.create(combined_dir, showWarnings = FALSE, recursive = TRUE)
 
+  gap_mask <- if (is.null(alignment)) NULL else build_gap_mask(alignment)
+
   combined_files <- character(B)
   for (b in seq_len(B)) {
     class_alns <- lapply(seq_len(K), function(k) {
@@ -246,6 +285,7 @@ simulate_mast_alignments <- function(mast_result, base_model, n_sites, B,
     })
 
     combined <- concatenate_alignments(class_alns)
+    if (!is.null(gap_mask)) combined <- apply_gap_mask(combined, gap_mask)
     combined_files[b] <- file.path(combined_dir,
                                    paste0("sim_", pad_int(b), ".phy"))
     write_phylip(combined, combined_files[b])

@@ -458,7 +458,8 @@ survey_phase2_mast <- function(alignment, K_values, K_best, base_model,
       outdir      = outdir,
       iqtree_bin  = iqtree_bin,
       threads     = threads,
-      timeout     = timeout
+      timeout     = timeout,
+      alignment   = alignment
     )
   } else {
     sim_files <- simulate_alignments(
