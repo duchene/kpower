@@ -19,7 +19,7 @@
 #' @param ic Information criterion used to select K_best and compute power:
 #'   `"AIC"`, `"AICc"`, or `"BIC"` (default `"BIC"`).
 #' @param fixed_tree Tree handling: `"NJ"` (per-K BioNJ, default), a path to
-#'   a fixed tree file, or `NULL` (full heuristic search). Ignored when
+#'   a fixed tree file, or `NULL` (heuristic search with `--fast`). Ignored when
 #'   `mix_type = "+T"` (MAST derives trees from alignment windows).
 #' @param rate_model Within-class rate heterogeneity for `+T`/`*T`
 #'   (e.g. `"+R4"`). When `NULL` (default) it is derived from the per-window
