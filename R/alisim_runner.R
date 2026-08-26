@@ -196,10 +196,12 @@ build_gap_mask <- function(alignment) {
 
 #' Simulate replicate alignments under a fitted MAST model
 #'
-#' For each tree class in the MAST model, runs AliSim to generate B partial
-#' alignments with site counts proportional to the class weight.
-#' The per-class replicates are then concatenated site-wise to produce B
-#' full-length simulated alignments.
+#' For each tree class in the MAST model, runs AliSim to generate B
+#' full-length alignments. Each replicate then draws its own multinomial
+#' split of the sites across classes (see `draw_class_counts()`) and takes
+#' that many sites from each class, concatenated in class order, to produce B
+#' full-length simulated alignments. Classes stay in contiguous blocks; only
+#' the block sizes vary between replicates.
 #'
 #' @param mast_result Named list from the K_best MAST fit, containing at
 #'   least: `treefile`, `iqtree_file`, `tree_weights`, `model_string`.
@@ -222,13 +224,10 @@ simulate_mast_alignments <- function(mast_result, base_model, n_sites, B,
   weights <- mast_result$tree_weights
   K       <- length(weights)
 
-  # Deterministic per-class site counts (proportional to weights)
-  n_per_class <- round(weights * n_sites)
-  residual    <- n_sites - sum(n_per_class)
-  if (residual != 0) {
-    n_per_class[which.max(n_per_class)] <-
-      n_per_class[which.max(n_per_class)] + residual
-  }
+  # Per-replicate class site counts, drawn from the fitted weights. Each
+  # class is simulated at full length so any replicate's draw can be served
+  # from it; the replicate takes the first n sites of each class.
+  class_counts <- draw_class_counts(B, n_sites, weights, seed)   # K x B
 
   # Parse shared model parameters and build AliSim model string
   params    <- parse_mast_model_params(mast_result$iqtree_file)
@@ -255,14 +254,15 @@ simulate_mast_alignments <- function(mast_result, base_model, n_sites, B,
       "--alisim",         sim_prefix,
       "-m",               model_str,
       "-t",               tree_file,
-      "--length",         as.character(n_per_class[k]),
+      "--length",         as.character(n_sites),
       "--num-alignments", as.character(B),
       "--seed",           as.character(seed + k),
       "-T",               threads,
       "--redo"
     )
-    message("  Simulating ", n_per_class[k], " sites for tree class ", k,
-            " (weight ", round(weights[k], 4), ") ...")
+    message("  Simulating tree class ", k, " (weight ",
+            round(weights[k], 4), ", ~",
+            round(weights[k] * n_sites), " sites per replicate) ...")
     run_iqtree(iqtree_bin, args, timeout = timeout)
     class_dirs[k] <- class_dir
   }
@@ -275,13 +275,16 @@ simulate_mast_alignments <- function(mast_result, base_model, n_sites, B,
 
   combined_files <- character(B)
   for (b in seq_len(B)) {
+    counts <- class_counts[, b]
     class_alns <- lapply(seq_len(K), function(k) {
       # AliSim writes sim_1.phy, sim_2.phy, etc.
       f <- file.path(class_dirs[k], paste0("sim_", b, ".phy"))
       if (!file.exists(f)) f <- file.path(class_dirs[k], paste0("sim_", b, ".fa"))
       if (!file.exists(f)) stop("Missing simulated file for class ", k,
                                 ", replicate ", b, ": ", f)
-      read_alignment(f)
+      # This replicate's share of class k: its first counts[k] sites. A class
+      # can draw zero sites, which yields an empty (dropped) block.
+      subset_sites(read_alignment(f), 1L, counts[k])
     })
 
     combined <- concatenate_alignments(class_alns)

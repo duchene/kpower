@@ -153,3 +153,31 @@ build_mast_model_str <- function(base_model, rate_model, K, unlinked = FALSE) {
     paste0(base_model, "+FO", rate_model, "+T")
   }
 }
+
+#' Draw per-replicate class site counts from MAST tree weights
+#'
+#' A single deterministic `round(weights * n_sites)` gives every replicate the
+#' same class sizes; with all other simulation inputs fixed the B replicates
+#' then come out identical, i.e. a bootstrap carrying no sampling variation.
+#' Each replicate instead draws its own multinomial split of the sites across
+#' classes. Reproducible given `seed`, and the caller's RNG stream is restored
+#' on exit.
+#'
+#' @param B Number of replicates.
+#' @param n_sites Total sites per replicate; every column sums to this.
+#' @param weights Numeric vector of K class weights.
+#' @param seed Integer seed.
+#' @return Integer matrix, K rows x B columns.
+#' @keywords internal
+draw_class_counts <- function(B, n_sites, weights, seed) {
+  had_seed <- exists(".Random.seed", envir = globalenv())
+  if (had_seed) old_seed <- get(".Random.seed", envir = globalenv())
+  on.exit({
+    if (had_seed) assign(".Random.seed", old_seed, envir = globalenv())
+    else if (exists(".Random.seed", envir = globalenv()))
+      rm(".Random.seed", envir = globalenv())
+  }, add = TRUE)
+
+  set.seed(seed)
+  stats::rmultinom(B, size = n_sites, prob = weights)
+}
