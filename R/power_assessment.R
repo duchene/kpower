@@ -47,6 +47,31 @@ fit_all_K <- function(alignment, K_values, base_model = "GTR",
   do.call(rbind, results)
 }
 
+#' K minimising an IC within each replicate
+#'
+#' Reads K from each replicate's own `K` column rather than indexing a shared
+#' `K_values` vector positionally, because a replicate's K range can be
+#' shorter than the requested one (see `mast_candidates()`, which reduces
+#' K_max to the number of usable candidate trees).
+#'
+#' @param sim_ic Long-format data frame with `replicate`, `K` and IC columns.
+#' @param ic Name of the IC column.
+#' @return Named numeric vector of best K per replicate; `NA` for a replicate
+#'   with no finite IC value.
+best_K_per_replicate <- function(sim_ic, ic) {
+  vapply(
+    split(seq_len(nrow(sim_ic)), sim_ic$replicate),
+    function(idx) {
+      vals <- sim_ic[[ic]][idx]
+      ok   <- is.finite(vals)
+      if (!any(ok)) return(NA_real_)
+      as.numeric(sim_ic$K[idx][ok][which.min(vals[ok])])
+    },
+    numeric(1)
+  )
+}
+
+
 #' Run the full parametric bootstrap power assessment
 #'
 #' For each of B simulated alignments, fits all K models and records IC
@@ -125,11 +150,8 @@ assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
   sim_ic <- do.call(rbind, sim_results)
 
   # For each replicate, which K minimises the chosen IC?
-  best_per_rep <- tapply(
-    sim_ic[[ic]], sim_ic$replicate,
-    function(x) K_values[which.min(x)]
-  )
-  power <- mean(best_per_rep == K_best)
+  best_per_rep <- best_K_per_replicate(sim_ic, ic)
+  power <- mean(best_per_rep == K_best, na.rm = TRUE)
 
   list(sim_ic = sim_ic, power = power)
 }
@@ -153,7 +175,12 @@ assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
 #'   re-derive it per replicate from that replicate's windows.
 #' @param unlinked Logical; if TRUE, use MIX syntax for unlinked per-tree
 #'   substitution parameters.
-#' @param window_method Window tree estimator: `"NJ"`, `"fast"`, or `"MFP"`.
+#' @param window_method Window tree estimator: `"NJ"` or `"fast"`.
+#' @param filter_trees Logical; passed to `mast_candidates()`. With `TRUE`
+#'   (default) a replicate whose windows yield fewer usable trees fits a
+#'   shorter K range than requested, and is recorded as such in `sim_ic`.
+#'   No floor is applied: a replicate that cannot reach the empirical K_best
+#'   is scored as a miss.
 #' @param fixed_tree Tree handling for the K = 1 fit.
 #' @param outdir Output directory.
 #' @param iqtree_bin Path to IQ-TREE.
@@ -165,7 +192,7 @@ assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
 assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
                               base_model, rate_model = NULL,
                               unlinked = FALSE, window_method = "NJ",
-                              fixed_tree = "NJ",
+                              filter_trees = TRUE, fixed_tree = "NJ",
                               outdir, iqtree_bin, threads,
                               n_cores = 1, seed = NULL, timeout = Inf) {
   sim_outdir <- file.path(outdir, "mast_sim_fits")
@@ -182,6 +209,7 @@ assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
       rate_model    = rate_model,
       unlinked      = unlinked,
       window_method = window_method,
+      filter_trees  = filter_trees,
       outdir        = rep_dir,
       iqtree_bin    = iqtree_bin,
       threads       = threads,
@@ -191,7 +219,7 @@ assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
 
     tbl <- fit_mast_all_K(
       alignment    = sim_files[b],
-      K_values     = K_values,
+      K_values     = cand$K_values_effective,
       base_model   = base_model,
       rate_model   = cand$rate_model,
       tree_files   = cand$tree_files,
@@ -206,6 +234,16 @@ assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
     )
     tbl$replicate  <- b
     tbl$rate_model <- cand$rate_model
+    # Per-replicate audit trail: how far the candidate-tree filter cut this
+    # replicate back, and whether that alone put K_best out of its reach.
+    tbl$K_max_effective    <- cand$K_max_effective
+    tbl$n_dropped          <- sum(cand$drop_counts)
+    tbl$drop_failed        <- cand$drop_counts[["failed"]]
+    tbl$drop_unparsable    <- cand$drop_counts[["unparsable"]]
+    tbl$drop_taxon_set     <- cand$drop_counts[["taxon_set"]]
+    tbl$drop_uninformative <- cand$drop_counts[["uninformative"]]
+    tbl$n_distinct         <- cand$n_distinct
+    tbl$below_K_best       <- cand$K_max_effective < K_best
     tbl
   }
   run_one_safe <- function(b) tryCatch(run_one(b), error = function(e) e)
@@ -232,11 +270,8 @@ assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
 
   sim_ic <- do.call(rbind, sim_results)
 
-  best_per_rep <- tapply(
-    sim_ic[[ic]], sim_ic$replicate,
-    function(x) K_values[which.min(x)]
-  )
-  power <- mean(best_per_rep == K_best)
+  best_per_rep <- best_K_per_replicate(sim_ic, ic)
+  power <- mean(best_per_rep == K_best, na.rm = TRUE)
 
   list(sim_ic = sim_ic, power = power)
 }
@@ -250,18 +285,18 @@ assess_mast_power <- function(sim_files, K_values, K_best, ic = "BIC",
 #' @param empirical_ic Data frame with columns K, AIC, AICc, BIC from
 #'   empirical fits.
 #' @param sim_ic Long-format data frame with replicate, K, AIC, AICc, BIC.
-#' @param K_values Integer vector of K values.
+#' @param K_values Unused, kept for call compatibility: K now comes from the
+#'   `K` column of each table, since empirical and replicate K ranges can
+#'   differ from the requested range.
 #' @return Named list with elements AIC, AICc, BIC, each containing
 #'   `K_best` (integer) and `power` (numeric between 0 and 1).
-compute_power_all_ic <- function(empirical_ic, sim_ic, K_values) {
+compute_power_all_ic <- function(empirical_ic, sim_ic, K_values = NULL) {
   ics <- c("AIC", "AICc", "BIC")
   result <- lapply(stats::setNames(ics, ics), function(crit) {
-    K_best <- K_values[which.min(empirical_ic[[crit]])]
-    best_per_rep <- tapply(
-      sim_ic[[crit]], sim_ic$replicate,
-      function(x) K_values[which.min(x)]
-    )
-    list(K_best = K_best, power = mean(best_per_rep == K_best))
+    K_best <- empirical_ic$K[which.min(empirical_ic[[crit]])]
+    best_per_rep <- best_K_per_replicate(sim_ic, crit)
+    list(K_best = K_best,
+         power  = mean(best_per_rep == K_best, na.rm = TRUE))
   })
   result
 }

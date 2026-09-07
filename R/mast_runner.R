@@ -44,8 +44,13 @@ split_alignment_windows <- function(alignment, K, outdir) {
 #' @param window_method Either `"NJ"` or `"fast"`.
 #' @param base_model Base substitution model used by the NJ and fast methods.
 #' @param seed Optional base seed; window i uses `seed + i`.
-#' @return List of per-window results, each with: window, treefile, iqtree_file,
-#'   best_model, tree (Newick string).
+#' @return List of per-window results, each with: window, treefile,
+#'   iqtree_file, best_model, tree (Newick string, or `NA` when the window
+#'   produced none), ok (logical), error (message or `NA`).
+#'
+#' A window IQ-TREE cannot analyse — too short, too gappy, non-zero exit, or a
+#' clean exit with no tree written — no longer aborts the whole alignment. It
+#' comes back with `ok = FALSE`, and `filter_candidate_trees()` drops it.
 estimate_window_trees <- function(windows, outdir, iqtree_bin, threads,
                                   timeout, window_method = "NJ",
                                   base_model = "GTR", seed = NULL) {
@@ -66,19 +71,47 @@ estimate_window_trees <- function(windows, outdir, iqtree_bin, threads,
     )
     if (!is.null(seed)) args <- c(args, "--seed", as.character(seed + i))
 
-    run_iqtree(iqtree_bin, args, timeout = timeout)
-
     iqtree_file <- paste0(prefix, ".iqtree")
     treefile    <- paste0(prefix, ".treefile")
+
+    attempt <- tryCatch({
+      run_iqtree(iqtree_bin, args, timeout = timeout)
+      tree <- read_first_tree(treefile)
+      if (is.na(tree))
+        stop("IQ-TREE exited cleanly but wrote no usable tree")
+      list(tree = tree, error = NA_character_)
+    }, error = function(e) {
+      list(tree = NA_character_, error = conditionMessage(e))
+    })
+
+    if (!is.na(attempt$error))
+      message("  Window ", i, " unusable: ", attempt$error)
 
     list(
       window      = i,
       treefile    = treefile,
       iqtree_file = iqtree_file,
       best_model  = parse_best_model(iqtree_file),
-      tree        = readLines(treefile)[1]
+      tree        = attempt$tree,
+      ok          = !is.na(attempt$tree),
+      error       = attempt$error
     )
   })
+}
+
+#' First usable Newick string in a tree file
+#'
+#' @param treefile Path to a `.treefile`.
+#' @return The first non-blank line, or `NA_character_` if the file is
+#'   missing, unreadable or empty.
+read_first_tree <- function(treefile) {
+  if (!file.exists(treefile)) return(NA_character_)
+  lines <- tryCatch(readLines(treefile, warn = FALSE),
+                    error = function(e) character(0))
+  lines <- trimws(lines)
+  lines <- lines[nzchar(lines)]
+  if (length(lines) == 0) return(NA_character_)
+  lines[1]
 }
 
 #' Parse the best-fit model from an IQ-TREE report (after MFP)
@@ -86,7 +119,9 @@ estimate_window_trees <- function(windows, outdir, iqtree_bin, threads,
 #' @param iqtree_file Path to a `.iqtree` report file.
 #' @return Best-fit model string, or NA if not found.
 parse_best_model <- function(iqtree_file) {
-  lines <- readLines(iqtree_file)
+  if (!file.exists(iqtree_file)) return(NA_character_)
+  lines <- tryCatch(readLines(iqtree_file, warn = FALSE),
+                    error = function(e) character(0))
   # ModelFinder writes "Best-fit model according to ...". Fixed-model runs
   # (e.g. GTR+R with -t BIONJ) do not, but still report the model they used.
   hit <- grep("^Best-fit model according to", lines, value = TRUE)
@@ -107,6 +142,8 @@ parse_best_model <- function(iqtree_file) {
 #' @return Character string like `"+R3"` or `"+G4"`.
 determine_rate_heterogeneity <- function(window_results) {
   models <- vapply(window_results, function(r) r$best_model, character(1))
+  models <- models[!is.na(models)]
+  if (length(models) == 0) return("+R4")
 
   # Try to extract +R{n} from each model
   r_hits <- regmatches(models, regexpr("\\+R[0-9]+", models))
@@ -136,13 +173,137 @@ determine_rate_heterogeneity <- function(window_results) {
 
 #' Write all candidate trees (one per line) to a single Newick file
 #'
-#' @param window_results List of per-window results.
+#' @param window_results Either a character vector of Newick strings (as
+#'   returned by `filter_candidate_trees()`) or a list of per-window results.
 #' @param outfile Path for the combined tree file.
 #' @return `outfile` (invisibly).
 collect_candidate_trees <- function(window_results, outfile) {
-  trees <- vapply(window_results, function(r) r$tree, character(1))
+  trees <- if (is.character(window_results)) window_results
+           else vapply(window_results, function(r) r$tree, character(1))
+  if (anyNA(trees))
+    stop("Refusing to write NA candidate trees to ", outfile)
   writeLines(trees, outfile)
   invisible(outfile)
+}
+
+# ---------------------------------------------------------------------------
+# Candidate-tree filtering
+# ---------------------------------------------------------------------------
+
+# Branch lengths at or below this are treated as absent when asking whether a
+# tree carries any bipartition. IQ-TREE's minimum branch length is 1e-6, and a
+# branch sitting on that floor carries no signal.
+ZERO_BRANCH_TOL <- 1e-6
+
+#' Drop candidate trees that MAST cannot use, in window order
+#'
+#' Applied between window tree estimation and the MAST fit. Drop reasons:
+#' - `failed` — the window produced no tree (`ok = FALSE`).
+#' - `unparsable` — a tree string `ape::read.tree()` cannot read.
+#' - `taxon_set` — the tree is not on the alignment's full taxon set. IQ-TREE
+#'   removes all-gap sequences, so a very gappy window yields a tree on a
+#'   subset of taxa; MAST's `-te` requires every tree on the same taxa, which
+#'   makes this a hard drop and the concrete form "too many gaps" takes.
+#' - `uninformative` — no internal branch survives collapsing near-zero
+#'   branches, i.e. a star tree carrying no bipartition.
+#'
+#' Duplicate topologies are deliberately **not** dropped. In MAST every tree
+#' carries its own branch lengths, so a repeated topology is a real model
+#' comparison (37 branch lengths + 1 weight on 20 unrooted taxa), not a free
+#' parameter, and the IC rejects it unaided: across the 480-run validation
+#' suite a duplicate reached the selected tree set in 4 runs, all at 3000
+#' sites. They are counted instead (`n_distinct`), so a K_best leaning on a
+#' redundant topology is visible rather than silent.
+#'
+#' @param window_results List of per-window results from
+#'   `estimate_window_trees()`.
+#' @param taxa Character vector of the alignment's taxon names.
+#' @param tol Branch lengths at or below this are treated as zero.
+#' @return List with `trees` (kept Newick strings, window order), `kept`
+#'   (the kept window results), `reasons` (per window), `counts` (named
+#'   integer vector of drop counts) and `n_distinct` (distinct topologies
+#'   among the kept trees).
+filter_candidate_trees <- function(window_results, taxa,
+                                   tol = ZERO_BRANCH_TOL) {
+  reasons <- vapply(window_results, function(r) {
+    if (!isTRUE(r$ok) || is.na(r$tree)) return("failed")
+    tr <- tryCatch(suppressWarnings(ape::read.tree(text = r$tree)),
+                   error = function(e) NULL)
+    if (is.null(tr) || is.null(tr$tip.label)) return("unparsable")
+    if (!setequal(tr$tip.label, taxa)) return("taxon_set")
+    if (is_uninformative_tree(tr, tol)) return("uninformative")
+    "kept"
+  }, character(1))
+
+  keep   <- reasons == "kept"
+  trees  <- vapply(window_results[keep], function(r) r$tree, character(1))
+  levels <- c("failed", "unparsable", "taxon_set", "uninformative")
+
+  list(
+    trees      = trees,
+    kept       = window_results[keep],
+    reasons    = reasons,
+    counts     = vapply(stats::setNames(levels, levels),
+                        function(l) sum(reasons == l), integer(1)),
+    n_distinct = count_distinct_topologies(trees, tol)
+  )
+}
+
+#' Does a tree carry no bipartition at all?
+#'
+#' @param tr An `ape` phylo object.
+#' @param tol Branch lengths at or below this are treated as zero.
+#' @return `TRUE` for a star tree (after collapsing near-zero branches).
+is_uninformative_tree <- function(tr, tol = ZERO_BRANCH_TOL) {
+  tr <- tryCatch(ape::unroot(tr), error = function(e) tr)
+  if (!is.null(tr$edge.length))
+    tr <- tryCatch(ape::di2multi(tr, tol = tol), error = function(e) tr)
+  isTRUE(tr$Nnode <= 1L)
+}
+
+#' Count distinct unrooted topologies in a set of Newick strings
+#'
+#' Compared after unrooting and collapsing near-zero branches, so two trees
+#' differing only by a zero-length branch count once. Diagnostic only —
+#' nothing is dropped on the strength of it.
+#'
+#' @param trees Character vector of Newick strings.
+#' @param tol Branch lengths at or below this are treated as zero.
+#' @return Number of distinct topologies, or `NA_integer_` if none could be
+#'   compared.
+count_distinct_topologies <- function(trees, tol = ZERO_BRANCH_TOL) {
+  if (length(trees) == 0) return(0L)
+  if (length(trees) == 1) return(1L)
+
+  topos <- lapply(trees, function(t) tryCatch({
+    tr <- ape::di2multi(ape::unroot(ape::read.tree(text = t)), tol = tol)
+    tr$edge.length <- NULL
+    tr
+  }, error = function(e) NULL))
+  topos <- topos[!vapply(topos, is.null, logical(1))]
+  if (length(topos) == 0) return(NA_integer_)
+
+  reps <- list()
+  for (tr in topos) {
+    dup <- FALSE
+    for (rp in reps) {
+      d <- tryCatch(as.numeric(ape::dist.topo(rp, tr, method = "PH85")),
+                    error = function(e) NA_real_)
+      if (length(d) == 1 && !is.na(d) && d == 0) { dup <- TRUE; break }
+    }
+    if (!dup) reps[[length(reps) + 1L]] <- tr
+  }
+  length(reps)
+}
+
+#' Describe drop counts for a message
+#'
+#' @param counts Named integer vector from `filter_candidate_trees()`.
+#' @return A string like `"1 failed, 2 taxon_set"`, or `"none"`.
+describe_drops <- function(counts) {
+  counts <- counts[counts > 0]
+  if (length(counts) == 0) return("none")
+  paste(paste(counts, names(counts)), collapse = ", ")
 }
 
 #' Rank tree indices by descending weight
@@ -315,8 +476,9 @@ fit_mast_all_K <- function(alignment, K_values, base_model, rate_model,
 #' Derive MAST candidate trees and tree sets from a single alignment
 #'
 #' Runs the full candidate-tree pipeline on whatever alignment it is given:
-#' window split, per-window tree estimation, MAST fit at K_max to obtain tree
-#' weights, ranking, and nested top-K tree sets.
+#' window split, per-window tree estimation, filtering of trees MAST cannot
+#' use, MAST fit at the effective K_max to obtain tree weights, ranking, and
+#' nested top-K tree sets.
 #'
 #' Bootstrap replicates must call this on their own alignment. Passing the
 #' empirical tree sets to a replicate hands it the topologies it was simulated
@@ -329,18 +491,27 @@ fit_mast_all_K <- function(alignment, K_values, base_model, rate_model,
 #'   `NULL`, it is derived from the per-window model selections.
 #' @param unlinked Logical; `TRUE` for `*T` (MIX syntax).
 #' @param window_method Passed to `estimate_window_trees()`.
+#' @param filter_trees Logical; when `TRUE` (default) candidate trees MAST
+#'   cannot use are dropped by `filter_candidate_trees()` and `K_max` falls to
+#'   the number of survivors. Windows are *not* re-split and trees are *not*
+#'   re-inferred — the surviving trees are the ones already estimated. When
+#'   `FALSE`, a failed window is an error, as it was before the filter existed.
 #' @param outdir Output directory for this alignment's files.
 #' @param iqtree_bin Path to IQ-TREE executable.
 #' @param threads Number of threads.
 #' @param timeout Per-run timeout in seconds.
 #' @param seed Optional base seed for window tree searches.
-#' @return List with: rate_model, all_trees, ranked, tree_files, mast_max,
-#'   mast_dir.
+#' @return List with: rate_model, all_trees (the kept trees), ranked,
+#'   tree_files, mast_max (`NULL` when fewer than two trees survive),
+#'   mast_dir, K_values_effective, K_max_effective, K_max_requested,
+#'   drop_reasons, drop_counts, n_distinct.
 mast_candidates <- function(alignment, K_values, base_model,
                             rate_model = NULL, unlinked = FALSE,
-                            window_method = "NJ", outdir,
-                            iqtree_bin, threads, timeout, seed = NULL) {
+                            window_method = "NJ", filter_trees = TRUE,
+                            outdir, iqtree_bin, threads, timeout,
+                            seed = NULL) {
   K_max <- max(K_values)
+  K_min <- min(K_values)
 
   windows <- split_alignment_windows(alignment, K_max, outdir)
   window_results <- estimate_window_trees(
@@ -350,34 +521,102 @@ mast_candidates <- function(alignment, K_values, base_model,
 
   if (is.null(rate_model)) rate_model <- determine_rate_heterogeneity(window_results)
 
-  tree_file <- collect_candidate_trees(
-    window_results, file.path(outdir, "candidate_trees.newick")
-  )
-  all_trees <- readLines(tree_file)
+  if (filter_trees) {
+    filt <- filter_candidate_trees(
+      window_results, taxa = names(read_alignment(alignment))
+    )
+  } else {
+    bad <- !vapply(window_results, function(r) isTRUE(r$ok), logical(1))
+    if (any(bad))
+      stop("Window tree estimation failed for window(s) ",
+           paste(which(bad), collapse = ", "),
+           ". Set filter_trees = TRUE to drop unusable windows and reduce ",
+           "K_max to the survivors.")
+    filt <- list(
+      trees      = vapply(window_results, function(r) r$tree, character(1)),
+      reasons    = rep("kept", length(window_results)),
+      counts     = c(failed = 0L, unparsable = 0L, taxon_set = 0L,
+                     uninformative = 0L),
+      n_distinct = NA_integer_
+    )
+  }
+
+  all_trees       <- filt$trees
+  K_max_effective <- length(all_trees)
+
+  if (K_max_effective < K_max)
+    message("  Candidate trees: ", K_max_effective, " of ", K_max,
+            " usable (dropped ", describe_drops(filt$counts),
+            "); K_max reduced to ", max(K_max_effective, 1L))
 
   mast_dir <- file.path(outdir, "mast_fits")
   dir.create(mast_dir, showWarnings = FALSE, recursive = TRUE)
 
+  # Fewer than two usable trees leaves no mixture to fit: the alignment gets
+  # the single-tree K = 1 fit and nothing else.
+  if (K_max_effective < 2) {
+    if (K_max >= 2)
+      warning("Only ", K_max_effective, " usable candidate tree(s) for ",
+              alignment, "; fitting K = 1 only.")
+    return(list(
+      rate_model         = rate_model,
+      all_trees          = all_trees,
+      ranked             = integer(0),
+      tree_files         = list(),
+      mast_max           = NULL,
+      mast_dir           = mast_dir,
+      K_values_effective = 1L,
+      K_max_effective    = K_max_effective,
+      K_max_requested    = K_max,
+      drop_reasons       = filt$reasons,
+      drop_counts        = filt$counts,
+      n_distinct         = filt$n_distinct
+    ))
+  }
+
+  K_values_effective <- K_values[K_values <= K_max_effective]
+  if (length(K_values_effective) == 0) K_values_effective <- K_max_effective
+
+  tree_file <- collect_candidate_trees(
+    all_trees, file.path(outdir, "candidate_trees.newick")
+  )
+
   mast_max <- fit_mast_model(
     alignment  = alignment,
     tree_file  = tree_file,
-    model_str  = build_mast_model_str(base_model, rate_model, K_max, unlinked),
+    model_str  = build_mast_model_str(base_model, rate_model,
+                                      K_max_effective, unlinked),
     outdir     = mast_dir,
-    label      = paste0("mast_K", K_max),
+    label      = paste0("mast_K", K_max_effective),
     iqtree_bin = iqtree_bin,
     threads    = threads,
     timeout    = timeout
   )
 
+  # A NULL/short weight vector used to slip through as order(NULL) ==
+  # integer(0), which writes literal NA lines into the tree files. Error here
+  # instead of corrupting every downstream fit.
+  if (length(mast_max$tree_weights) != K_max_effective ||
+      anyNA(mast_max$tree_weights))
+    stop("Could not parse ", K_max_effective, " MAST tree weights from ",
+         mast_max$iqtree_file)
+
   ranked <- rank_trees_by_weight(mast_max$tree_weights)
 
   list(
-    rate_model = rate_model,
-    all_trees  = all_trees,
-    ranked     = ranked,
-    tree_files = build_mast_tree_files(all_trees, ranked, K_values, outdir),
-    mast_max   = mast_max,
-    mast_dir   = mast_dir
+    rate_model         = rate_model,
+    all_trees          = all_trees,
+    ranked             = ranked,
+    tree_files         = build_mast_tree_files(all_trees, ranked,
+                                               K_values_effective, outdir),
+    mast_max           = mast_max,
+    mast_dir           = mast_dir,
+    K_values_effective = K_values_effective,
+    K_max_effective    = K_max_effective,
+    K_max_requested    = K_max,
+    drop_reasons       = filt$reasons,
+    drop_counts        = filt$counts,
+    n_distinct         = filt$n_distinct
   )
 }
 

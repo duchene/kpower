@@ -93,9 +93,49 @@ Divide the alignment into K_max non-overlapping windows of near-equal size.
 
 #### Step 2 — Estimate per-window trees
 
-Run IQ-TREE with ModelFinder (`-m MFP`) and full heuristic tree search on
-each window.  This yields K_max candidate trees and, as a side product,
-the best-fit model for each window.
+Estimate one tree per window under `base_model+R`, by the estimator
+`tree_search` selects: `"NJ"` (default; `-t BIONJ --tree-fix`) or `"fast"`
+(`--fast`).  The same estimator is used for the K = 1 fit, so the
+K = 1 versus K >= 2 comparison is not confounded by tree quality
+(`resolve_tree_search()`).  This yields up to K_max candidate trees and, as a
+side product, the model used for each window.
+
+A window IQ-TREE cannot analyse no longer aborts the alignment: it comes back
+flagged `ok = FALSE` and is dropped in Step 2b.
+
+#### Step 2b — Filter candidate trees and reduce K_max
+
+`filter_candidate_trees()` drops candidate trees MAST cannot use, in window
+order, for one of four reasons:
+
+- `failed` — the window produced no tree.
+- `unparsable` — the Newick string cannot be read.
+- `taxon_set` — the tree is not on the alignment's full taxon set.  IQ-TREE
+  removes all-gap sequences, so a very gappy window yields a tree on a subset
+  of taxa; MAST's `-te` requires every tree on the same taxa.  This is the
+  concrete form "too many gaps" takes.
+- `uninformative` — no internal branch survives collapsing branches at or
+  below 1e-6, i.e. a star tree carrying no bipartition.
+
+`K_max` then falls to the number of survivors (`K_max_effective`), and every
+downstream step uses that.  Windows are **not** re-split and trees are **not**
+re-inferred.  Fewer than two survivors leaves no mixture to fit, and the
+alignment gets the K = 1 fit alone.
+
+Duplicate topologies are deliberately kept.  In MAST each tree carries its own
+branch lengths, so a repeated topology is a real model comparison (37 branch
+lengths + 1 weight on 20 unrooted taxa), not a free parameter, and the IC
+rejects it unaided — across the 480-run `kpower_tests` suite a duplicate
+reached the selected tree set in 4 runs, all at 3000 sites.  The distinct
+topology count is recorded (`n_distinct`) so a K_best leaning on a redundant
+topology is visible rather than silent.
+
+Set `filter_trees = FALSE` to restore the pre-filter behaviour, where an
+unusable window aborts the analysis.
+
+When `K_best == K_max_effective < K_max` the ceiling was set by the filter
+rather than by the IC, so the result reads as "at least K_best"; the run is
+flagged `ceiling_limited` for exactly that reason.
 
 #### Step 3 — Determine within-class rate heterogeneity
 
@@ -103,16 +143,17 @@ Summarise the rate heterogeneity component (e.g. `+R3`, `+G4`) across the
 per-window best models.  The most common FreeRate category count is used;
 falls back to `+R4` when no clear pattern emerges.
 
-#### Step 4 — Fit MAST with K_max trees
+#### Step 4 — Fit MAST with all surviving trees
 
 Fit the full MAST model (`base_model+FO+rate_model+T`) to the empirical
-alignment using all K_max candidate trees supplied via `-te`.  Extract
-tree weights.
+alignment using all K_max_effective candidate trees supplied via `-te`.
+Extract tree weights; a weight vector that cannot be parsed, or that does not
+match the number of trees, is an error rather than a silent `NA` tree file.
 
 #### Step 5 — Rank trees and build tree sets
 
-Sort trees by descending weight from the K_max run.  For each K in
-K_min..K_max, build a tree file containing the top-K ranked trees.
+Sort trees by descending weight from the K_max_effective run.  For each K in
+K_min..K_max_effective, build a tree file containing the top-K ranked trees.
 
 #### Step 6 — Fit all K values
 
@@ -138,9 +179,17 @@ mimicking.
 
 #### Step 9 — Refit all K on each replicate
 
-For each simulated alignment, refit K = 1..K_max using the same tree sets
-as the empirical analysis (K = 1 via BioNJ, K >= 2 via MAST with the
-top-K ranked trees).
+Each replicate re-runs Steps 1-6 on **its own** alignment via
+`mast_candidates()`: its own windows, its own window trees, its own ranking
+and — with `rate_model = NULL` — its own rate model.  The empirical tree sets
+are deliberately not reused; handing a replicate the topologies it was
+simulated from pins the IC minimum at K_best and forces power to 100%.
+
+A replicate therefore has its own `K_max_effective`, and may fit a shorter K
+range than requested.  No floor is applied at the empirical K_best: a
+replicate whose candidate trees cannot reach K_best is scored as a miss, and
+`sim_ic` records `K_max_effective`, the per-reason drop counts, `n_distinct`
+and a `below_K_best` flag per replicate so the rate is auditable.
 
 #### Step 10 — Power assessment and output
 

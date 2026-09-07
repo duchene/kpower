@@ -213,6 +213,9 @@ build_gap_mask <- function(alignment) {
 #' @param iqtree_bin Path to IQ-TREE.
 #' @param threads Number of threads.
 #' @param timeout AliSim timeout in seconds.
+#' @param alignment Optional path to the source alignment; when supplied its
+#'   gap pattern is copied positionally onto each replicate. `NULL` skips
+#'   gap masking.
 #' @return Character vector of length B giving paths to the combined simulated
 #'   alignment files.
 simulate_mast_alignments <- function(mast_result, base_model, n_sites, B,

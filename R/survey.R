@@ -31,6 +31,14 @@
 #'   (default `"BIC"`).
 #' @param fixed_tree Tree handling for rate/GHOST models (default `"NJ"`).
 #'   Ignored for `+T`/`*T`.
+#' @param rate_model Within-class rate heterogeneity for `+T`/`*T`
+#'   (e.g. `"+R4"`), or `NULL` (default) to derive it per alignment.
+#' @param tree_search Tree estimation for `+T`/`*T`: `"NJ"` (default) or
+#'   `"fast"`. See [kpower()].
+#' @param fast_trees Deprecated alias for `tree_search = "fast"`.
+#' @param filter_trees Logical, `+T`/`*T` only; default `TRUE`. See
+#'   [kpower()]: drops candidate trees MAST cannot use and reduces K_max to
+#'   the survivors, per family and per bootstrap replicate.
 #' @param B Integer number of parametric bootstrap replicates per family
 #'   (default 100).
 #' @param seed Integer random seed (default 1).
@@ -66,6 +74,7 @@ kpower_survey <- function(alignment,
                           rate_model = NULL,
                           tree_search = "NJ",
                           fast_trees = FALSE,
+                          filter_trees = TRUE,
                           B          = 100L,
                           seed       = 1L,
                           outdir     = tempdir(),
@@ -103,6 +112,7 @@ kpower_survey <- function(alignment,
         fixed_tree = fixed_tree,
         rate_model = rate_model,
         tree_search = tree_search,
+        filter_trees = filter_trees,
         n_sites    = n_sites,
         B          = B,
         seed       = seed,
@@ -176,7 +186,7 @@ kpower_survey <- function(alignment,
 #' @keywords internal
 survey_one_family <- function(alignment, K_values, base_model, mix_type,
                               ic, fixed_tree, rate_model = NULL,
-                              tree_search = "NJ",
+                              tree_search = "NJ", filter_trees = TRUE,
                               n_sites, B, seed, outdir,
                               iqtree_bin, n_cores, threads, timeout) {
 
@@ -203,6 +213,7 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
       fixed_tree = fixed_tree,
       rate_model = rate_model,
       window_method = window_method,
+      filter_trees = filter_trees,
       outdir     = outdir,
       iqtree_bin = iqtree_bin,
       threads    = threads,
@@ -232,8 +243,14 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
     mast_ctx <- NULL
   }
 
-  K_best <- K_values[which.min(empirical_ic[[ic]])]
+  # K comes from the table's own K column: on the MAST pathway the fitted
+  # range can be shorter than the requested one (see mast_candidates()).
+  K_best <- empirical_ic$K[which.min(empirical_ic[[ic]])]
   message("  K_best = ", K_best, " (", ic, ")")
+  if (is_mast && isTRUE(K_best == mast_ctx$K_max_effective) &&
+      isTRUE(mast_ctx$K_max_effective < max(K_values)))
+    message("  Note: K_best sits on the reduced ceiling (K_max_effective = ",
+            mast_ctx$K_max_effective, " < K_max = ", max(K_values), ")")
 
   # ========== Phase 2: Parametric bootstrap =================================
 
@@ -253,6 +270,7 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
       B          = B,
       seed       = seed,
       mast_ctx   = mast_ctx,
+      filter_trees = filter_trees,
       outdir     = outdir,
       iqtree_bin = iqtree_bin,
       n_cores    = n_cores,
@@ -290,6 +308,13 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
     sim_ic     = phase2$sim_ic,
     power_all  = power_all,
     mix_type   = mix_type,
+    K_max_requested = max(K_values),
+    K_max_effective = if (is_mast) mast_ctx$K_max_effective else max(K_values),
+    ceiling_limited = isTRUE(is_mast) &&
+      isTRUE(K_best == mast_ctx$K_max_effective) &&
+      isTRUE(mast_ctx$K_max_effective < max(K_values)),
+    drop_counts = if (is_mast) mast_ctx$drop_counts else NULL,
+    n_distinct  = if (is_mast) mast_ctx$n_distinct else NA_integer_,
     mast_ctx   = mast_ctx
   )
 }
@@ -300,7 +325,7 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
 
 survey_phase1_mast <- function(alignment, K_values, base_model, mix_type,
                                ic, fixed_tree = "NJ", rate_model = NULL,
-                               window_method = "NJ",
+                               window_method = "NJ", filter_trees = TRUE,
                                outdir, iqtree_bin,
                                threads, timeout, seed = NULL) {
   unlinked <- (mix_type == "*T")
@@ -314,6 +339,7 @@ survey_phase1_mast <- function(alignment, K_values, base_model, mix_type,
     rate_model    = rate_model,
     unlinked      = unlinked,
     window_method = window_method,
+    filter_trees  = filter_trees,
     outdir        = outdir,
     iqtree_bin    = iqtree_bin,
     threads       = threads,
@@ -324,7 +350,7 @@ survey_phase1_mast <- function(alignment, K_values, base_model, mix_type,
 
   empirical_ic <- fit_mast_all_K(
     alignment    = alignment,
-    K_values     = K_values,
+    K_values     = cand$K_values_effective,
     base_model   = base_model,
     rate_model   = cand$rate_model,
     tree_files   = cand$tree_files,
@@ -348,7 +374,14 @@ survey_phase1_mast <- function(alignment, K_values, base_model, mix_type,
     mast_max      = cand$mast_max,
     mast_max_dir  = cand$mast_dir,
     unlinked      = unlinked,
-    fixed_tree    = fixed_tree
+    fixed_tree    = fixed_tree,
+    # Effective K range after the candidate-tree filter. Phase 2's reuse
+    # check compares K_best against this, not against the requested K_max.
+    K_values_effective = cand$K_values_effective,
+    K_max_effective    = cand$K_max_effective,
+    drop_counts        = cand$drop_counts,
+    drop_reasons       = cand$drop_reasons,
+    n_distinct         = cand$n_distinct
   )
 
   list(empirical_ic = empirical_ic, mast_ctx = mast_ctx)
@@ -406,7 +439,7 @@ survey_phase2_standard <- function(alignment, K_values, K_best,
 
 survey_phase2_mast <- function(alignment, K_values, K_best, base_model,
                                mix_type, ic, fixed_tree = "NJ", n_sites,
-                               B, seed, mast_ctx,
+                               B, seed, mast_ctx, filter_trees = TRUE,
                                outdir, iqtree_bin, n_cores, threads,
                                timeout) {
   unlinked     <- mast_ctx$unlinked
@@ -426,8 +459,9 @@ survey_phase2_mast <- function(alignment, K_values, K_best, base_model,
     )
     use_mast_sim <- FALSE
   } else {
-    K_max <- max(K_values)
-    if (K_best == K_max) {
+    # The empirical alignment's ceiling, which the filter may have lowered.
+    K_max <- mast_ctx$K_max_effective
+    if (isTRUE(K_best == K_max)) {
       best_mast <- mast_ctx$mast_max
     } else {
       kbest_model_str <- build_mast_model_str(base_model, rate_model, K_best,
@@ -474,7 +508,8 @@ survey_phase2_mast <- function(alignment, K_values, K_best, base_model,
     )
   }
 
-  # Refit all K on each replicate
+  # Refit all K on each replicate. Replicates get the *requested* K range:
+  # each derives its own candidate trees and so its own effective ceiling.
   assess_mast_power(
     sim_files  = sim_files,
     K_values   = K_values,
@@ -484,6 +519,7 @@ survey_phase2_mast <- function(alignment, K_values, K_best, base_model,
     rate_model = mast_ctx$rate_model_in,
     unlinked   = unlinked,
     window_method = mast_ctx$window_method,
+    filter_trees = filter_trees,
     fixed_tree = fixed_tree,
     outdir     = outdir,
     iqtree_bin = iqtree_bin,
@@ -523,6 +559,8 @@ build_survey_comparison <- function(families, ic) {
         power_AIC  = NA_real_,
         power_AICc = NA_real_,
         power_BIC  = NA_real_,
+        K_max_effective = NA_integer_,
+        ceiling_limited = NA,
         stringsAsFactors = FALSE
       ))
     }
@@ -543,6 +581,9 @@ build_survey_comparison <- function(families, ic) {
       power_AIC  = pa$AIC$power,
       power_AICc = pa$AICc$power,
       power_BIC  = pa$BIC$power,
+      K_max_effective = if (is.null(fam$K_max_effective)) NA_integer_
+                        else as.integer(fam$K_max_effective),
+      ceiling_limited = isTRUE(fam$ceiling_limited),
       stringsAsFactors = FALSE
     )
   })

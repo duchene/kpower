@@ -25,6 +25,16 @@
 #'   (e.g. `"+R4"`). When `NULL` (default) it is derived from the per-window
 #'   model selections of whichever alignment is being analysed, so each
 #'   bootstrap replicate derives its own.
+#' @param fast_trees Deprecated alias for `tree_search = "fast"`.
+#' @param filter_trees Logical, `+T`/`*T` only; default `TRUE`. Drop candidate
+#'   trees MAST cannot use — a window that produced no tree, a tree on a
+#'   gap-trimmed subset of the taxa, or a star tree with no bipartition — and
+#'   reduce `K_max` to the number of survivors, reporting it as
+#'   `K_max_effective`. Windows are not re-split and trees are not
+#'   re-inferred. Duplicate topologies are kept (they are a real
+#'   per-tree-branch-length model comparison, which the IC judges on its
+#'   own) and only counted. `FALSE` restores the previous behaviour, where an
+#'   unusable window aborts the analysis.
 #' @param tree_search Tree estimation for `+T`/`*T`: `"NJ"` (BioNJ, default)
 #'   or `"fast"` (`--fast` heuristic search). Applies to both the window trees
 #'   and the K = 1 tree, so the two cannot disagree, and is applied identically
@@ -70,6 +80,7 @@ kpower <- function(alignment,
                    rate_model = NULL,
                    tree_search = "NJ",
                    fast_trees = FALSE,
+                   filter_trees = TRUE,
                    B          = 1000L,
                    seed       = 1L,
                    outdir     = tempdir(),
@@ -94,6 +105,7 @@ kpower <- function(alignment,
       fixed_tree = fixed_tree,
       rate_model = rate_model,
       tree_search = tree_search,
+      filter_trees = filter_trees,
       B          = B,
       seed       = seed,
       outdir     = outdir,
@@ -126,7 +138,7 @@ kpower <- function(alignment,
   )
 
   # --- Step 2: Select K_best ------------------------------------------------
-  K_best     <- K_values[which.min(empirical_ic[[ic]])]
+  K_best     <- empirical_ic$K[which.min(empirical_ic[[ic]])]
   best_label  <- paste0("empirical_K", K_best)
   best_prefix <- make_prefix(emp_outdir, best_label)
   best_fit <- list(
@@ -240,10 +252,13 @@ print.kpower_result <- function(x, ...) {
 #'
 #' Workflow:
 #' 1. Split alignment into K_max windows.
-#' 2. Run MFP on each window to estimate a candidate tree.
+#' 2. Estimate a candidate tree per window (BioNJ or `--fast`, per
+#'    `tree_search`).
 #' 3. Determine within-class rate heterogeneity from window model selections.
-#' 4. Fit MAST with all K_max candidate trees.
-#' 5. Rank trees by weight; build tree sets for K = 1..K_max.
+#' 3b. Drop candidate trees MAST cannot use and reduce K_max to the survivors
+#'    (`filter_candidate_trees()`; skipped when `filter_trees = FALSE`).
+#' 4. Fit MAST with all surviving candidate trees.
+#' 5. Rank trees by weight; build tree sets for K = 1..K_max_effective.
 #' 6. Fit all K values (K = 1 is a standard BioNJ single-tree fit).
 #' 7. Select K_best by IC.
 #' 8. Simulate B alignments by per-class AliSim + concatenation.
@@ -258,6 +273,7 @@ print.kpower_result <- function(x, ...) {
 kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
                         mix_type = "+T", ic = "BIC", fixed_tree = "NJ",
                         rate_model = NULL, tree_search = "NJ",
+                        filter_trees = TRUE,
                         B = 1000L, seed = 1L,
                         outdir = tempdir(), iqtree_bin = find_iqtree(),
                         n_cores = 1L, threads = "1", timeout = 10 * 3600) {
@@ -283,6 +299,7 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
     rate_model    = rate_model,
     unlinked      = unlinked,
     window_method = window_method,
+    filter_trees  = filter_trees,
     outdir        = file.path(outdir, "empirical"),
     iqtree_bin    = iqtree_bin,
     threads       = threads,
@@ -296,10 +313,17 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
   mast_max     <- emp$mast_max
   mast_max_dir <- emp$mast_dir
 
+  # The filter may have cut K_max back; everything downstream uses the
+  # effective range, and K_max_effective is reported so a K_best sitting on a
+  # reduced ceiling is detectable rather than silent.
+  K_values        <- emp$K_values_effective
+  K_max_effective <- emp$K_max_effective
+
   message("Rate heterogeneity: ", rate_model)
   message("Tree ranking by weight: ", paste(ranked, collapse = ", "))
 
-  message("Fitting K = ", K_min, " to ", K_max, " on empirical alignment ...")
+  message("Fitting K = ", min(K_values), " to ", max(K_values),
+          " on empirical alignment ...")
   empirical_ic <- fit_mast_all_K(
     alignment    = alignment,
     K_values     = K_values,
@@ -317,8 +341,12 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
   )
 
   # --- Step 7: Select K_best ------------------------------------------------
-  K_best <- K_values[which.min(empirical_ic[[ic]])]
+  K_best <- empirical_ic$K[which.min(empirical_ic[[ic]])]
   message("K_best = ", K_best, " (selected by ", ic, ")")
+  if (K_best == K_max_effective && K_max_effective < K_max)
+    message("Note: K_best sits on the reduced ceiling (K_max_effective = ",
+            K_max_effective, " < K_max = ", K_max,
+            "), so it reads as \"at least ", K_best, "\".")
 
   # Retrieve the K_best fit result for simulation
   if (K_best == 1) {
@@ -334,8 +362,8 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
     )
     use_mast_sim <- FALSE
   } else {
-    # Re-use the MAST fit for K_best (or K_max if K_best == K_max)
-    if (K_best == K_max) {
+    # Re-use the MAST fit for K_best (or the effective K_max if it is that)
+    if (K_best == K_max_effective) {
       best_mast <- mast_max
     } else {
       message("Refitting MAST with K_best = ", K_best, " trees ...")
@@ -388,15 +416,19 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
   # --- Step 9: Refit all K on each replicate --------------------------------
   message("Refitting K = ", K_min, " to ", K_max,
           " on ", B, " simulated alignments ...")
+  # Replicates are given the *requested* K range, not the empirical
+  # alignment's effective one: each derives its own candidate trees and so its
+  # own effective ceiling. No floor is applied at the empirical K_best.
   power_result <- assess_mast_power(
     sim_files  = sim_files,
-    K_values   = K_values,
+    K_values   = seq.int(K_min, K_max),
     K_best     = K_best,
     ic         = ic,
     base_model = base_model,
     rate_model = rate_model,
     unlinked   = unlinked,
     window_method = window_method,
+    filter_trees = filter_trees,
     fixed_tree = fixed_tree,
     outdir     = outdir,
     iqtree_bin = iqtree_bin,
@@ -438,6 +470,12 @@ kpower_mast <- function(alignment, K_max, K_min = 1L, base_model = "GTR",
       rate_model   = rate_model,
       tree_weights = if (use_mast_sim) best_mast$tree_weights else NULL,
       ranked_trees = ranked,
+      K_max_requested = K_max,
+      K_max_effective = K_max_effective,
+      ceiling_limited = (K_best == K_max_effective && K_max_effective < K_max),
+      drop_counts     = emp$drop_counts,
+      drop_reasons    = emp$drop_reasons,
+      n_distinct      = emp$n_distinct,
       plot         = fig
     ),
     class = "kpower_result"

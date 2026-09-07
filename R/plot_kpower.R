@@ -26,7 +26,7 @@ utils::globalVariables(c("K", ".data", "lab", "replicate", "mix_type"))
 #' @param sim_ic       Data frame or named list of data frames with columns
 #'   replicate, K, and the IC column.
 #' @param K_best       Integer (single) or named integer vector (multi).
-#' @param power        Numeric in [0,1] (single) or named numeric vector
+#' @param power        Numeric in 0-1 (single) or named numeric vector
 #'   (multi).
 #' @param ic Character; which IC column to plot: `"AIC"`, `"AICc"`, or `"BIC"`
 #'   (default `"BIC"`).
