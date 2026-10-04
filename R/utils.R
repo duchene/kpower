@@ -121,13 +121,21 @@ pad_int <- function(i, width = 4) {
 #' suffix.  The `*R` type is special: IQ-TREE implements it via
 #' `MIX{base+F,...}*R{K}` (each rate class gets its own substitution model).
 #'
+#' `+FO` (ML-optimised state frequencies) is always included, matching
+#' [build_mast_model_str()].  Without it the standard pathway fell back to
+#' IQ-TREE's default `+F` (empirical counts) while the MAST pathway used
+#' `+FO`, so the two families were not comparable: on a 27-taxon, 14,653-site
+#' filovirus alignment the same model scored 59 BIC units better under `+FO`
+#' than `+F` at identical degrees of freedom, which was enough to change
+#' which family `kpower_survey()` reported as best.
+#'
 #' @param base_model Base substitution model (e.g. `"GTR"`).
 #' @param mix_type Mixture type: `"+R"`, `"*R"`, `"+H"`, or `"*H"`.
 #' @param K Integer number of mixture categories.
 #' @return Character string suitable for IQ-TREE `-m`.
 build_model_str <- function(base_model, mix_type, K) {
-  if (K == 1) return(base_model)
-  paste0(base_model, mix_type, K)
+  if (K == 1) return(paste0(base_model, "+FO"))
+  paste0(base_model, "+FO", mix_type, K)
 }
 
 #' Build an IQ-TREE model string for MAST tree-mixture models
