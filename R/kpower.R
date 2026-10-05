@@ -210,8 +210,8 @@ print.kpower_result <- function(x, ...) {
     cat("  ---\n")
     for (crit in c("AIC", "AICc", "BIC")) {
       pa <- x$power_all[[crit]]
-      cat(sprintf("  %-4s : K_best = %d, Power = %.1f%%\n",
-                  crit, pa$K_best, pa$power * 100))
+      cat(sprintf("  %-4s : K_best = %d, Power = %.1f%% (n = %d)\n",
+                  crit, pa$K_best, pa$power * 100, pa$n_rep %||% NA_integer_))
     }
   }
   invisible(x)

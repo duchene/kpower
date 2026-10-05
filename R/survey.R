@@ -266,8 +266,8 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
 
   power_all <- compute_power_all_ic(empirical_ic, phase2$sim_ic, K_values)
 
-  message(sprintf("  Power (%s): %.1f%%",
-                  ic, power_all[[ic]]$power * 100))
+  message(sprintf("  Power (%s): %.1f%% of %d usable replicate(s)",
+                  ic, power_all[[ic]]$power * 100, power_all[[ic]]$n_rep))
 
   list(
     empirical  = empirical_ic,
@@ -521,6 +521,7 @@ build_survey_comparison <- function(families, ic) {
         power_AIC  = NA_real_,
         power_AICc = NA_real_,
         power_BIC  = NA_real_,
+        n_rep      = NA_integer_,
         stringsAsFactors = FALSE
       ))
     }
@@ -541,6 +542,7 @@ build_survey_comparison <- function(families, ic) {
       power_AIC  = pa$AIC$power,
       power_AICc = pa$AICc$power,
       power_BIC  = pa$BIC$power,
+      n_rep      = pa[[ic]]$n_rep,
       stringsAsFactors = FALSE
     )
   })
@@ -591,6 +593,7 @@ print.kpower_survey <- function(x, ...) {
     BIC      = ifelse(is.na(comp$BIC), NA, round(comp$BIC, 1)),
     power    = ifelse(is.na(comp[[power_col]]), "n/a",
                       sprintf("%.1f%%", comp[[power_col]] * 100)),
+    n_rep    = comp$n_rep,
     stringsAsFactors = FALSE
   )
   print(disp, row.names = FALSE)

@@ -10,16 +10,36 @@
 #' @return Invisibly, the `processx` result object (with $status, $stdout,
 #'   $stderr).
 run_iqtree <- function(iqtree_bin, args, timeout = Inf) {
+  args <- add_run_seed(args)
+
   result <- processx::run(
     command         = iqtree_bin,
     args            = args,
     timeout         = timeout,
     error_on_status = FALSE
   )
+
   if (result$status != 0) {
     stop("IQ-TREE exited with status ", result$status, ":\n", result$stderr)
   }
   invisible(result)
+}
+
+# Give every model-fitting run a deterministic -seed so that a kpower run is
+# reproducible. The seed is derived from the run's own --prefix, which is
+# unique per (family, replicate, K), so each fit gets its own stable seed
+# without threading a seed argument through every caller. AliSim invocations
+# are left alone: they already set --seed from the user's `seed` argument.
+add_run_seed <- function(args) {
+  if (any(args %in% c("-seed", "--seed")) || "--alisim" %in% args) return(args)
+  i <- match("--prefix", args)
+  if (is.na(i) || i >= length(args)) return(args)
+  c(args, "-seed", as.character(prefix_seed(args[i + 1L])))
+}
+
+prefix_seed <- function(prefix) {
+  v <- utf8ToInt(prefix)
+  as.integer(sum(as.numeric(v) * seq_along(v)) %% 999983) + 1L
 }
 
 #' Fit a mixture model with K categories to an alignment

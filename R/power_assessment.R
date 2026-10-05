@@ -235,7 +235,8 @@ compute_power_all_ic <- function(empirical_ic, sim_ic, K_values) {
       sim_ic[[crit]], sim_ic$replicate,
       function(x) K_values[which.min(x)]
     )
-    list(K_best = K_best, power = mean(best_per_rep == K_best))
+    list(K_best = K_best, power = mean(best_per_rep == K_best),
+         n_rep = length(best_per_rep))
   })
   result
 }
