@@ -76,7 +76,16 @@ result$empirical   # IC scores from empirical fits
 result$sim_ic      # IC scores from all bootstrap fits (long format)
 result$K_best      # selected K
 result$power       # proportion of simulations recovering K_best
+result$power_all   # K_best, power and n_rep under AIC, AICc and BIC
 ```
+
+`power` is a proportion over `n_rep` replicates, not necessarily over `B`:
+replicates whose refits fail are dropped. Because the ones that fail are
+those with extreme parameter draws, a shrunken `n_rep` biases the estimate
+rather than merely widening it, so check it before quoting a power.
+
+Runs are reproducible: model fits are seeded deterministically from their
+output prefix, and `seed` controls the simulations.
 
 ## Output figure
 
@@ -92,14 +101,35 @@ is high (e.g., > 80%), the data have sufficient signal to reliably identify
 K_best. If the empirical line is an outlier or power is low, results should be
 interpreted cautiously.
 
+Low power is not a rare edge case. On a 16-taxon filovirus alignment, BIC
+selected `+R` K=3 over K=2 by 5.0 BIC units, and only 1 of 100 bootstrap
+replicates recovered K=3 -- the selection was noise, which the IC table alone
+would not have revealed. Treat a small margin between adjacent K as a reason
+to run the bootstrap, not as a result.
+
+Keep `B` large enough to resolve the answer: at B = 10 the standard error on
+a power near 50% is about 15 percentage points. Two runs that reported 30%
+and 40% at B = 10 gave 53% at B = 100.
+
 ## Supported model families
 
 | Family | Description | `mix_type` argument |
 |---|---|---|
 | FreeRate | Rate categories with freely estimated rates and weights | `"+R"` (default) |
+| FreeRate, unlinked | As above, each class with its own substitution model | `"*R"` |
 | GHOST / Heterotachy | Rate + branch-length classes | `"+H"` |
+| GHOST, unlinked | Per-class substitution models and branch lengths | `"*H"` |
+| Tree mixtures (MAST) | Mixture over tree topologies | `"+T"` |
+| Tree mixtures, unlinked | Tree topologies + per-tree substitution model | `"*T"` |
 | Empirical profiles | Amino acid frequency profiles (C10, C20, ...) | planned |
-| Tree mixtures (MAST) | Mixture over tree topologies | planned |
+
+All families are fitted with `+FO` (ML-optimised state frequencies). Mixing
+`+FO` and `+F` across families would make their information criteria
+incomparable, since `+FO` fits better at the same degrees of freedom.
+
+To compare families rather than pick one, use `kpower_survey()`, which fits
+every requested family, bootstraps each, and returns a ranked comparison
+table annotated with power under all three criteria.
 
 ## Advanced options
 

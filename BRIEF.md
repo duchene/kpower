@@ -153,13 +153,23 @@ IC profile figure.
 
 | Family | K controls | `mix_type` | IQ-TREE syntax | Status |
 |---|---|---|---|---|
-| FreeRate (linked) | Rate categories | `"+R"` | `+R{K}` | Implemented |
-| FreeRate (unlinked) | Rate categories + per-class substitution | `"*R"` | `*R{K}` | Implemented |
-| GHOST (linked) | Rate + branch-length classes | `"+H"` | `+H{K}` | Implemented |
-| GHOST (unlinked) | Per-class substitution models + branch lengths | `"*H"` | `*H{K}` | Implemented |
+| FreeRate (linked) | Rate categories | `"+R"` | `+FO+R{K}` | Implemented |
+| FreeRate (unlinked) | Rate categories + per-class substitution | `"*R"` | `+FO*R{K}` | Implemented |
+| GHOST (linked) | Rate + branch-length classes | `"+H"` | `+FO+H{K}` | Implemented |
+| GHOST (unlinked) | Per-class substitution models + branch lengths | `"*H"` | `+FO*H{K}` | Implemented |
 | Tree mixtures (linked) | Tree topologies | `"+T"` | `model+FO+rate+T` with `-te` | Implemented |
 | Tree mixtures (unlinked) | Tree topologies + per-tree substitution | `"*T"` | `MIX{model+FO,...}+rate+T` with `-te` | Implemented |
 | Empirical profile mixtures | Frequency profiles | — | `+C10`, `+C20`, ... | Planned |
+
+### State frequencies
+
+All families use `+FO` (state frequencies optimised by maximum likelihood).
+This matters for the cross-family comparison: `+FO` costs no extra degrees
+of freedom but fits better than IQ-TREE's default `+F` (empirical counts),
+so a family fitted with one and a family fitted with the other are not
+comparable.  On a 27-taxon, 14,653-site filovirus alignment the same model
+scored 59 BIC units better under `+FO`, which was enough to change which
+family `kpower_survey()` reported as best.
 
 ### Linked vs unlinked
 
@@ -179,11 +189,17 @@ IC profile figure.
 
 ### Standard fits (+R / +H / *H)
 ```
-iqtree3 -s alignment.fasta -m GTR+R{K} -t BIONJ --tree-fix
-        --prefix out_K{K} -T {n_cores} --redo
+iqtree3 -s alignment.fasta -m GTR+FO+R{K} -t BIONJ --tree-fix
+        --prefix out_K{K} -T {n_cores} -seed {derived} --redo
 ```
 For +H and *H, the flag `-wspm` is appended to save site-class
 probabilities.
+
+Every fitting call carries `-seed`, derived deterministically from that
+run's own `--prefix` (unique per family, replicate and K).  Without it the
+`--fast` heuristic search could reach a different optimum on each run: two
+runs of the same GHOST survey on one alignment gave empirical BIC
+189290.09 and 189290.15, moving the reported power from 40% to 30%.
 
 ### MAST fits (+T)
 ```
@@ -323,14 +339,30 @@ one the user selects as primary.  The `$power_all` element in the result
 contains a named list:
 
 ```r
-res$power_all$AIC   # list(K_best = 4, power = 0.82)
-res$power_all$AICc  # list(K_best = 4, power = 0.80)
-res$power_all$BIC   # list(K_best = 3, power = 0.91)
+res$power_all$AIC   # list(K_best = 4, power = 0.82, n_rep = 100)
+res$power_all$AICc  # list(K_best = 4, power = 0.80, n_rep = 100)
+res$power_all$BIC   # list(K_best = 3, power = 0.91, n_rep = 100)
 ```
 
 The primary IC (specified by `ic`) still determines `$K_best` and `$power`
 in the top-level result, and controls which K the simulation is generated
 from.
+
+Two cautions when reading these numbers:
+
+- **The non-primary criteria share the primary criterion's simulations.**
+  All three powers are computed from the same B replicates, which were
+  generated under the *primary* IC's K_best.  A non-primary criterion whose
+  K_best differs from the primary one is therefore being asked to recover a
+  K the data were not generated under, and its power will be near zero for
+  reasons that say nothing about the data.  Only compare criteria that agree
+  on K_best.
+- **`n_rep` is the denominator, and it can shrink.**  Replicates whose refits
+  fail are dropped and power is the proportion over the survivors, so a run
+  where 3 of 10 replicates hit IQ-TREE's numerical underflow reports power
+  over 7.  Failed replicates are not a random subset -- they are the ones with
+  extreme parameter draws -- so a shrunken `n_rep` biases the estimate rather
+  than merely widening it.  Check `n_rep` before quoting a power.
 
 ---
 

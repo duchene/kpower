@@ -33,7 +33,10 @@
 #'   Ignored for `+T`/`*T`.
 #' @param B Integer number of parametric bootstrap replicates per family
 #'   (default 100).
-#' @param seed Integer random seed (default 1).
+#' @param seed Integer random seed for the AliSim simulations (default 1).
+#'   Model-fitting runs are seeded separately and deterministically, from
+#'   each run's output prefix, so a given analysis is reproducible without
+#'   this argument affecting it.
 #' @param outdir Output directory.
 #' @param iqtree_bin Path to IQ-TREE executable.
 #' @param n_cores Number of parallel R workers for bootstrap refits.

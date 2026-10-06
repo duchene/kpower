@@ -22,7 +22,10 @@
 #'   a fixed tree file, or `NULL` (full heuristic search). Ignored when
 #'   `mix_type = "+T"` (MAST derives trees from alignment windows).
 #' @param B Integer number of parametric bootstrap replicates (default 1000).
-#' @param seed Integer random seed passed to AliSim (default 1).
+#' @param seed Integer random seed for the AliSim simulations (default 1).
+#'   Model-fitting runs are seeded separately and deterministically, from
+#'   each run's output prefix, so a given analysis is reproducible without
+#'   this argument affecting it.
 #' @param outdir Directory for all IQ-TREE output files. Defaults to a
 #'   temporary directory.
 #' @param iqtree_bin Path to the IQ-TREE executable. Detected automatically
@@ -46,7 +49,11 @@
 #'     \item{power}{Numeric; proportion of simulations that recover K_best
 #'       under `ic`.}
 #'     \item{power_all}{Named list with elements AIC, AICc, BIC, each a list
-#'       of K_best and power under that criterion.}
+#'       of K_best, power, and n_rep (the number of replicates the power was
+#'       computed over, which is below `B` when some replicates failed).
+#'       All three are computed from the same simulations, generated under
+#'       the primary `ic`'s K_best, so a criterion whose K_best differs from
+#'       the primary one reports a power that is not interpretable.}
 #'     \item{ic}{Character; the primary IC used.}
 #'     \item{plot}{A ggplot2 object (IC profile figure).}
 #'   }
