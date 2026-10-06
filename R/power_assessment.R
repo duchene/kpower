@@ -231,6 +231,12 @@ compute_power_all_ic <- function(empirical_ic, sim_ic, K_values) {
   ics <- c("AIC", "AICc", "BIC")
   result <- lapply(stats::setNames(ics, ics), function(crit) {
     K_best <- K_values[which.min(empirical_ic[[crit]])]
+    # assess_power() stops when nothing survives, so an empty sim_ic normally
+    # cannot reach here -- but guard anyway, since tapply() on zero rows would
+    # fail confusingly and a caller assembling sim_ic itself could hit it.
+    if (is.null(sim_ic) || nrow(sim_ic) == 0) {
+      return(list(K_best = K_best, power = NA_real_, n_rep = 0L))
+    }
     best_per_rep <- tapply(
       sim_ic[[crit]], sim_ic$replicate,
       function(x) K_values[which.min(x)]
