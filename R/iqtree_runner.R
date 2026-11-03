@@ -31,14 +31,16 @@ run_iqtree <- function(iqtree_bin, args, timeout = Inf) {
 #'   fast; each K gets its own NJ topology based on its model distances.
 #' - A file path: fix the supplied tree (`-t path --tree-fix`). Useful for
 #'   enforcing a shared topology across all K fits.
-#' - `NULL`: heuristic tree search with `--fast` (slowest; current default).
+#' - `"ML"`: full IQ-TREE ML tree search (no `--fast`; slowest, most thorough).
+#' - `NULL`: heuristic tree search with `--fast`.
 #'
 #' @param alignment Path to the input alignment (FASTA or PHYLIP).
 #' @param K Integer number of mixture categories.
 #' @param base_model Base substitution model string (e.g. `"GTR"`, `"LG"`).
 #' @param mix_type Mixture type suffix: `"+R"` (FreeRate), `"+H"` (GHOST),
 #'   etc. Default `"+R"`.
-#' @param fixed_tree Tree handling: `"NJ"`, a path to a tree file, or `NULL`.
+#' @param fixed_tree Tree handling: `"NJ"`, `"ML"`, a path to a tree file, or
+#'   `NULL`.
 #' @param outdir Directory in which to write IQ-TREE output files.
 #' @param label Short label used to build the `--prefix` (default derived from
 #'   K and mix_type).
@@ -70,6 +72,8 @@ fit_model <- function(alignment, K, base_model = "GTR", mix_type = "+R",
 
   if (identical(fixed_tree, "NJ")) {
     args <- c(args, "-t", "BIONJ", "--tree-fix")
+  } else if (identical(fixed_tree, "ML")) {
+    # full tree search: IQ-TREE's default, no extra flags
   } else if (!is.null(fixed_tree)) {
     args <- c(args, "-t", fixed_tree, "--tree-fix")
   } else {

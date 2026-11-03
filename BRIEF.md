@@ -94,8 +94,8 @@ Divide the alignment into K_max non-overlapping windows of near-equal size.
 #### Step 2 — Estimate per-window trees
 
 Estimate one tree per window under `base_model+R`, by the estimator
-`tree_search` selects: `"NJ"` (default; `-t BIONJ --tree-fix`) or `"fast"`
-(`--fast`).  The same estimator is used for the K = 1 fit, so the
+`tree_search` selects: `"NJ"` (default; `-t BIONJ --tree-fix`), `"fast"`
+(`--fast`) or `"ML"` (full search, no `--fast`).  The same estimator is used for the K = 1 fit, so the
 K = 1 versus K >= 2 comparison is not confounded by tree quality
 (`resolve_tree_search()`).  This yields up to K_max candidate trees and, as a
 side product, the model used for each window.

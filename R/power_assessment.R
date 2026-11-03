@@ -175,7 +175,7 @@ assess_power <- function(sim_files, K_values, K_best, ic = "BIC",
 #'   re-derive it per replicate from that replicate's windows.
 #' @param unlinked Logical; if TRUE, use MIX syntax for unlinked per-tree
 #'   substitution parameters.
-#' @param window_method Window tree estimator: `"NJ"` or `"fast"`.
+#' @param window_method Window tree estimator: `"NJ"`, `"fast"` or `"ML"`.
 #' @param filter_trees Logical; passed to `mast_candidates()`. With `TRUE`
 #'   (default) a replicate whose windows yield fewer usable trees fits a
 #'   shorter K range than requested, and is recorded as such in `sim_ic`.

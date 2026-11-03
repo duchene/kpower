@@ -33,8 +33,8 @@
 #'   Ignored for `+T`/`*T`.
 #' @param rate_model Within-class rate heterogeneity for `+T`/`*T`
 #'   (e.g. `"+R4"`), or `NULL` (default) to derive it per alignment.
-#' @param tree_search Tree estimation for `+T`/`*T`: `"NJ"` (default) or
-#'   `"fast"`. See [kpower()].
+#' @param tree_search Tree estimation for `+T`/`*T`: `"NJ"` (default),
+#'   `"fast"` or `"ML"`. See [kpower()].
 #' @param fast_trees Deprecated alias for `tree_search = "fast"`.
 #' @param filter_trees Logical, `+T`/`*T` only; default `TRUE`. See
 #'   [kpower()]: drops candidate trees MAST cannot use and reduces K_max to

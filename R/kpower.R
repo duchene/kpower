@@ -19,8 +19,9 @@
 #' @param ic Information criterion used to select K_best and compute power:
 #'   `"AIC"`, `"AICc"`, or `"BIC"` (default `"BIC"`).
 #' @param fixed_tree Tree handling: `"NJ"` (per-K BioNJ, default), a path to
-#'   a fixed tree file, or `NULL` (heuristic search with `--fast`). Ignored when
-#'   `mix_type = "+T"` (MAST derives trees from alignment windows).
+#'   a fixed tree file, `"ML"` (full IQ-TREE tree search per fit), or `NULL`
+#'   (heuristic search with `--fast`). Ignored when `mix_type = "+T"` (MAST
+#'   derives trees from alignment windows).
 #' @param rate_model Within-class rate heterogeneity for `+T`/`*T`
 #'   (e.g. `"+R4"`). When `NULL` (default) it is derived from the per-window
 #'   model selections of whichever alignment is being analysed, so each
@@ -35,11 +36,11 @@
 #'   per-tree-branch-length model comparison, which the IC judges on its
 #'   own) and only counted. `FALSE` restores the previous behaviour, where an
 #'   unusable window aborts the analysis.
-#' @param tree_search Tree estimation for `+T`/`*T`: `"NJ"` (BioNJ, default)
-#'   or `"fast"` (`--fast` heuristic search). Applies to both the window trees
-#'   and the K = 1 tree, so the two cannot disagree, and is applied identically
-#'   to the empirical alignment and to every replicate. Overrides `fixed_tree`
-#'   on the MAST pathway.
+#' @param tree_search Tree estimation for `+T`/`*T`: `"NJ"` (BioNJ, default),
+#'   `"fast"` (`--fast` heuristic search) or `"ML"` (full tree search). Applies
+#'   to both the window trees and the K = 1 tree, so the two cannot disagree,
+#'   and is applied identically to the empirical alignment and to every
+#'   replicate. Overrides `fixed_tree` on the MAST pathway.
 #' @param B Integer number of parametric bootstrap replicates (default 1000).
 #' @param seed Integer random seed passed to AliSim (default 1).
 #' @param outdir Directory for all IQ-TREE output files. Defaults to a

@@ -32,6 +32,7 @@ split_alignment_windows <- function(alignment, K, outdir) {
 #'   letting IQ-TREE choose the FreeRate category count. Deterministic given
 #'   the alignment, and cheap enough to repeat on every bootstrap replicate.
 #' - `"fast"`: `--fast` heuristic search under `base_model+R`.
+#' - `"ML"`: full IQ-TREE tree search under `base_model+R` (no `--fast`).
 #'
 #' Must match the estimator used for the K = 1 fit; see
 #' `resolve_tree_search()`, which couples them.
@@ -41,7 +42,7 @@ split_alignment_windows <- function(alignment, K, outdir) {
 #' @param iqtree_bin Path to IQ-TREE executable.
 #' @param threads Number of threads.
 #' @param timeout Per-window timeout in seconds.
-#' @param window_method Either `"NJ"` or `"fast"`.
+#' @param window_method `"NJ"`, `"fast"` or `"ML"`.
 #' @param base_model Base substitution model used by the NJ and fast methods.
 #' @param seed Optional base seed; window i uses `seed + i`.
 #' @return List of per-window results, each with: window, treefile,
@@ -54,7 +55,7 @@ split_alignment_windows <- function(alignment, K, outdir) {
 estimate_window_trees <- function(windows, outdir, iqtree_bin, threads,
                                   timeout, window_method = "NJ",
                                   base_model = "GTR", seed = NULL) {
-  window_method <- match.arg(window_method, c("NJ", "fast"))
+  window_method <- match.arg(window_method, c("NJ", "fast", "ML"))
   tree_dir <- file.path(outdir, "window_trees")
   dir.create(tree_dir, showWarnings = FALSE, recursive = TRUE)
 
@@ -67,6 +68,8 @@ estimate_window_trees <- function(windows, outdir, iqtree_bin, threads,
              "-t", "BIONJ", "--tree-fix",
              "--prefix", prefix, "-T", threads, "--redo"),
       fast = c("-s", windows[i], "-m", paste0(base_model, "+R"), "--fast",
+               "--prefix", prefix, "-T", threads, "--redo"),
+      ML   = c("-s", windows[i], "-m", paste0(base_model, "+R"),
                "--prefix", prefix, "-T", threads, "--redo")
     )
     if (!is.null(seed)) args <- c(args, "--seed", as.character(seed + i))
@@ -627,13 +630,13 @@ mast_candidates <- function(alignment, K_values, base_model,
 #' K = 1 versus K >= 2 comparison is biased by tree quality rather than by the
 #' number of tree classes. This couples them so they cannot be set apart.
 #'
-#' @param tree_search Either `"NJ"` (BioNJ throughout) or `"fast"`
-#'   (`--fast` heuristic search throughout).
+#' @param tree_search `"NJ"` (BioNJ throughout), `"fast"` (`--fast`
+#'   heuristic search throughout) or `"ML"` (full search throughout).
 #' @return List with `window_method` and `fixed_tree`.
 resolve_tree_search <- function(tree_search = "NJ") {
-  tree_search <- match.arg(tree_search, c("NJ", "fast"))
+  tree_search <- match.arg(tree_search, c("NJ", "fast", "ML"))
   list(
     window_method = tree_search,
-    fixed_tree    = if (tree_search == "NJ") "NJ" else NULL
+    fixed_tree    = switch(tree_search, NJ = "NJ", fast = NULL, ML = "ML")
   )
 }
