@@ -294,9 +294,16 @@ compute_power_all_ic <- function(empirical_ic, sim_ic, K_values = NULL) {
   ics <- c("AIC", "AICc", "BIC")
   result <- lapply(stats::setNames(ics, ics), function(crit) {
     K_best <- empirical_ic$K[which.min(empirical_ic[[crit]])]
+    # assess_power() stops when nothing survives, so an empty sim_ic normally
+    # cannot reach here -- but guard anyway, since a caller assembling sim_ic
+    # itself could hit it.
+    if (is.null(sim_ic) || nrow(sim_ic) == 0) {
+      return(list(K_best = K_best, power = NA_real_, n_rep = 0L))
+    }
     best_per_rep <- best_K_per_replicate(sim_ic, crit)
     list(K_best = K_best,
-         power  = mean(best_per_rep == K_best, na.rm = TRUE))
+         power  = mean(best_per_rep == K_best, na.rm = TRUE),
+         n_rep  = sum(!is.na(best_per_rep)))
   })
   result
 }

@@ -42,7 +42,10 @@
 #'   and is applied identically to the empirical alignment and to every
 #'   replicate. Overrides `fixed_tree` on the MAST pathway.
 #' @param B Integer number of parametric bootstrap replicates (default 1000).
-#' @param seed Integer random seed passed to AliSim (default 1).
+#' @param seed Integer random seed for the AliSim simulations (default 1).
+#'   Model-fitting runs are seeded separately and deterministically, from
+#'   each run's output prefix, so a given analysis is reproducible without
+#'   this argument affecting it.
 #' @param outdir Directory for all IQ-TREE output files. Defaults to a
 #'   temporary directory.
 #' @param iqtree_bin Path to the IQ-TREE executable. Detected automatically
@@ -66,7 +69,11 @@
 #'     \item{power}{Numeric; proportion of simulations that recover K_best
 #'       under `ic`.}
 #'     \item{power_all}{Named list with elements AIC, AICc, BIC, each a list
-#'       of K_best and power under that criterion.}
+#'       of K_best, power, and n_rep (the number of replicates the power was
+#'       computed over, which is below `B` when some replicates failed).
+#'       All three are computed from the same simulations, generated under
+#'       the primary `ic`'s K_best, so a criterion whose K_best differs from
+#'       the primary one reports a power that is not interpretable.}
 #'     \item{ic}{Character; the primary IC used.}
 #'     \item{plot}{A ggplot2 object (IC profile figure).}
 #'   }
@@ -236,8 +243,8 @@ print.kpower_result <- function(x, ...) {
     cat("  ---\n")
     for (crit in c("AIC", "AICc", "BIC")) {
       pa <- x$power_all[[crit]]
-      cat(sprintf("  %-4s : K_best = %d, Power = %.1f%%\n",
-                  crit, pa$K_best, pa$power * 100))
+      cat(sprintf("  %-4s : K_best = %d, Power = %.1f%% (n = %d)\n",
+                  crit, pa$K_best, pa$power * 100, pa$n_rep %||% NA_integer_))
     }
   }
   invisible(x)

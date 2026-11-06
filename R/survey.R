@@ -41,7 +41,10 @@
 #'   the survivors, per family and per bootstrap replicate.
 #' @param B Integer number of parametric bootstrap replicates per family
 #'   (default 100).
-#' @param seed Integer random seed (default 1).
+#' @param seed Integer random seed for the AliSim simulations (default 1).
+#'   Model-fitting runs are seeded separately and deterministically, from
+#'   each run's output prefix, so a given analysis is reproducible without
+#'   this argument affecting it.
 #' @param outdir Output directory.
 #' @param iqtree_bin Path to IQ-TREE executable.
 #' @param n_cores Number of parallel R workers for bootstrap refits.
@@ -299,8 +302,8 @@ survey_one_family <- function(alignment, K_values, base_model, mix_type,
 
   power_all <- compute_power_all_ic(empirical_ic, phase2$sim_ic, K_values)
 
-  message(sprintf("  Power (%s): %.1f%%",
-                  ic, power_all[[ic]]$power * 100))
+  message(sprintf("  Power (%s): %.1f%% of %d usable replicate(s)",
+                  ic, power_all[[ic]]$power * 100, power_all[[ic]]$n_rep))
 
   list(
     empirical  = empirical_ic,
@@ -559,6 +562,7 @@ build_survey_comparison <- function(families, ic) {
         power_AIC  = NA_real_,
         power_AICc = NA_real_,
         power_BIC  = NA_real_,
+        n_rep      = NA_integer_,
         K_max_effective = NA_integer_,
         ceiling_limited = NA,
         stringsAsFactors = FALSE
@@ -581,6 +585,7 @@ build_survey_comparison <- function(families, ic) {
       power_AIC  = pa$AIC$power,
       power_AICc = pa$AICc$power,
       power_BIC  = pa$BIC$power,
+      n_rep      = pa[[ic]]$n_rep,
       K_max_effective = if (is.null(fam$K_max_effective)) NA_integer_
                         else as.integer(fam$K_max_effective),
       ceiling_limited = isTRUE(fam$ceiling_limited),
@@ -634,6 +639,7 @@ print.kpower_survey <- function(x, ...) {
     BIC      = ifelse(is.na(comp$BIC), NA, round(comp$BIC, 1)),
     power    = ifelse(is.na(comp[[power_col]]), "n/a",
                       sprintf("%.1f%%", comp[[power_col]] * 100)),
+    n_rep    = comp$n_rep,
     stringsAsFactors = FALSE
   )
   print(disp, row.names = FALSE)
